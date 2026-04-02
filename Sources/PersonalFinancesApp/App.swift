@@ -5,6 +5,19 @@ struct PersonalFinancesApp: App {
     @State private var store = AppStore.makePreview()
 
     var body: some Scene {
+        WindowGroup("Personal Finances") {
+            RootSplitView()
+                .environmentObject(store)
+                .dynamicTypeSize(store.dynamicTypeSize)
+                .environment(\.controlSize, store.controlSize)
+                .preferredColorScheme(store.settings.preferredColorScheme)
+                .tint(store.settings.accentColor.color)
+                .onReceive(NotificationCenter.default.publisher(for: .requestStoreReload)) { _ in
+                    store = AppStore.makePreview()
+                }
+        }
+        .defaultSize(width: 1100, height: 700)
+
         MenuBarExtra {
             if let b = store.nextDueUnpaidBill {
                 Text("Next Due: \(b.name)")
@@ -39,19 +52,6 @@ struct PersonalFinancesApp: App {
                 Image(systemName: "dollarsign.circle")
             }
         }
-        
-        WindowGroup("Personal Finances") {
-            RootSplitView()
-                .environmentObject(store)
-                .dynamicTypeSize(store.dynamicTypeSize)
-                .environment(\.controlSize, store.controlSize)
-                .preferredColorScheme(store.settings.preferredColorScheme)
-                .tint(store.settings.accentColor.color)
-                .onReceive(NotificationCenter.default.publisher(for: .requestStoreReload)) { _ in
-                    store = AppStore.makePreview()
-                }
-        }
-        .defaultSize(width: 1100, height: 700)
         WindowGroup("Reports", id: "reports") {
             ReportsView()
                 .environmentObject(store)
