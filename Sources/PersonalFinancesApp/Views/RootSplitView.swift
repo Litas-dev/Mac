@@ -22,6 +22,7 @@ struct RootSplitView: View {
     @State private var showResetAlert: Bool = false
     @State private var aiResetToken: UUID = UUID()
     @State private var touchBarActionBill: Bill?
+    @State private var showTouchBarAlert = false
     @AppStorage("overviewDisplayMode") private var overviewDisplayMode: Int = 0
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding: Bool = false
     private enum DetailScreen { case info, history, stats }
@@ -346,6 +347,7 @@ struct RootSplitView: View {
                     store.selectedBillID = b.id
                     detailScreen = .info
                     touchBarActionBill = b
+                    showTouchBarAlert = true
                 }
             } else {
                 Text("No bills due")
@@ -466,10 +468,7 @@ struct RootSplitView: View {
         }
         .alert(
             "Manage Bill",
-            isPresented: Binding(
-                get: { touchBarActionBill != nil },
-                set: { if !$0 { touchBarActionBill = nil } }
-            ),
+            isPresented: $showTouchBarAlert,
             presenting: touchBarActionBill
         ) { bill in
             Button("Log Payment") { store.logPayment(for: bill.id) }
