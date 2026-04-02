@@ -405,6 +405,11 @@ struct RootSplitView: View {
                 store.showOnboardingWizard = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenEditBill"))) { notification in
+            if let id = notification.object as? UUID, let b = store.bills.first(where: { $0.id == id }) {
+                editingBill = b
+            }
+        }
         .popover(item: $editingBill) { b in
             EditBillView(bill: b) { updated in
                 store.update(updated)
@@ -855,8 +860,11 @@ private struct TouchBarBillActionsView: View {
                     onClose()
                 }
                 Button("Edit…") {
-                    store.selectedBillID = bill.id
                     onClose()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        store.selectedBillID = bill.id
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenEditBill"), object: bill.id)
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)
