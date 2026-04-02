@@ -38,6 +38,11 @@ struct RootSplitView: View {
         return eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
     }
 
+    private var nextDueUnpaidBill: Bill? {
+        let eligible = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }
+        return eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(selected: $selectedSection)
@@ -346,8 +351,9 @@ struct RootSplitView: View {
         .touchBar {
             if let b = touchBarNextDueBill {
                 Button("Pay: \(b.name)") {
+                    selectedSection = .overview
                     store.selectedBillID = b.id
-                    store.logPayment(for: b.id)
+                    detailScreen = .info
                 }
             } else {
                 Text("No bills due")
