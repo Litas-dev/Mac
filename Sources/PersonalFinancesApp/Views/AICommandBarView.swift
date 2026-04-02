@@ -235,10 +235,10 @@ struct AICommandBarView: View {
         }
         .padding(.vertical, 6)
         .onAppear { refreshFavorites() }
-        .onChange(of: resetToken) { _, _ in
+        .onChange(of: resetToken) { _ in
             clearAndDismiss()
         }
-        .onChange(of: input) { _, _ in
+        .onChange(of: input) { _ in
             if ignoreNextInputChangeReset {
                 ignoreNextInputChangeReset = false
             } else {

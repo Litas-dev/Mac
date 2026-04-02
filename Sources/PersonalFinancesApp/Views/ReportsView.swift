@@ -3,9 +3,7 @@ import Charts
 
 struct ReportsView: View {
     @EnvironmentObject private var store: AppStore
-    #if os(macOS)
-    @Environment(\.dismissWindow) private var dismissWindow
-    #endif
+    @Environment(\.dismiss) private var dismiss
     @State private var mode: DataMode = .bills
     @State private var period: Period = .monthly
     @State private var selectedLabel: String? = nil
@@ -45,7 +43,7 @@ struct ReportsView: View {
                 isEnabled: true,
                 bezelColor: .controlColor,
                 titleColor: .labelColor,
-                onTap: { dismissWindow(id: "reports") }
+                onTap: { dismiss() }
             )
             .frame(width: 1, height: 1)
             .opacity(0.001)
@@ -303,6 +301,7 @@ struct ReportsView: View {
         }
     }
     
+    @available(macOS 14.0, *)
     private func pieChart() -> some View {
         let slices: [Slice] = pie()
         let total = max(0.0001, slices.reduce(0.0) { $0 + $1.amount })

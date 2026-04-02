@@ -3,7 +3,7 @@
 Personal Finances is a native macOS SwiftUI app for tracking bills, incomes, accounts, goals, debts, and basic reporting.
 
 ## Version
-- Current: 0.4.0 (pre-alpha)
+- Current: 0.4.1 (pre-alpha)
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 - Build number: increments over time (used as CFBundleVersion)
 
@@ -17,7 +17,7 @@ Personal Finances is a native macOS SwiftUI app for tracking bills, incomes, acc
 - AI command bar: quick parsing/execution of common actions + recent command suggestions.
 
 ## Build & Run
-This repo is a Swift Package Manager macOS app (macOS 14+).
+This repo is a Swift Package Manager macOS app (macOS 13+, Intel + Apple Silicon).
 
 - Run using the script (recommended):
 

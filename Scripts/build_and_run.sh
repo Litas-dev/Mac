@@ -11,10 +11,27 @@ cd "$PROJECT_DIR"
 if [ -f "$PROJECT_DIR/Package.swift" ]; then
   echo "› Building with Swift Package Manager"
   export SWIFTPM_DISABLE_SANDBOX=1
-  swift build -c debug
-  BIN="$PROJECT_DIR/.build/debug/$APP_NAME"
-  if [ ! -f "$BIN" ]; then
-    BIN="$PROJECT_DIR/.build/debug/PersonalFinancesApp"
+  UNIVERSAL="${UNIVERSAL:-1}"
+  if [ "$UNIVERSAL" = "1" ]; then
+    echo "› Building universal (arm64 + x86_64)"
+    swift build -c debug --arch arm64
+    ARM_BIN_DIR="$(swift build -c debug --arch arm64 --show-bin-path)"
+    swift build -c debug --arch x86_64
+    X86_BIN_DIR="$(swift build -c debug --arch x86_64 --show-bin-path)"
+    ARM_BIN="$ARM_BIN_DIR/$APP_NAME"
+    X86_BIN="$X86_BIN_DIR/$APP_NAME"
+    if [ ! -f "$ARM_BIN" ]; then ARM_BIN="$ARM_BIN_DIR/PersonalFinancesApp"; fi
+    if [ ! -f "$X86_BIN" ]; then X86_BIN="$X86_BIN_DIR/PersonalFinancesApp"; fi
+    UNIVERSAL_BIN="$PROJECT_DIR/.build/debug/$APP_NAME"
+    mkdir -p "$(dirname "$UNIVERSAL_BIN")"
+    lipo -create "$ARM_BIN" "$X86_BIN" -output "$UNIVERSAL_BIN"
+    BIN="$UNIVERSAL_BIN"
+  else
+    swift build -c debug
+    BIN="$PROJECT_DIR/.build/debug/$APP_NAME"
+    if [ ! -f "$BIN" ]; then
+      BIN="$PROJECT_DIR/.build/debug/PersonalFinancesApp"
+    fi
   fi
   osascript -e 'tell application "PersonalFinances" to quit' >/dev/null 2>&1 || true
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
