@@ -474,7 +474,7 @@ struct RootSplitView: View {
                 .environmentObject(store)
                 .interactiveDismissDisabled()
         }
-        .confirmationDialog(
+        .alert(
             "Manage Bill",
             isPresented: Binding(
                 get: { touchBarActionBill != nil },
