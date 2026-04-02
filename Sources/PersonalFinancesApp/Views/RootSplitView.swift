@@ -358,16 +358,20 @@ struct RootSplitView: View {
         #if os(macOS)
         .background(
             TouchBarHost(
-                title: activeTouchBarBill?.name ?? "You are on track this month",
-                isEnabled: activeTouchBarBill != nil,
-                bezelColor: touchBarBezelColor,
+                title: selectedSection == .income ? "Add Income" : (activeTouchBarBill?.name ?? "You are on track this month"),
+                isEnabled: selectedSection == .income ? true : (activeTouchBarBill != nil),
+                bezelColor: selectedSection == .income ? .systemBlue : touchBarBezelColor,
                 titleColor: .white,
                 onTap: {
-                    guard let b = activeTouchBarBill else { return }
-                    selectedSection = .overview
-                    store.selectedBillID = b.id
-                    detailScreen = .info
-                    touchBarActionBill = b
+                    if selectedSection == .income {
+                        showingAdd = true
+                    } else {
+                        guard let b = activeTouchBarBill else { return }
+                        selectedSection = .overview
+                        store.selectedBillID = b.id
+                        detailScreen = .info
+                        touchBarActionBill = b
+                    }
                 },
                 onPayTap: nil
             )
@@ -916,6 +920,13 @@ private struct TouchBarBillActionsView: View {
                 bezelColor: .controlColor,
                 titleColor: .labelColor,
                 onTap: { onClose() },
+                onEditTap: {
+                    onClose()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        store.selectedBillID = bill.id
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenEditBill"), object: bill.id)
+                    }
+                },
                 onPayTap: {
                     store.logPayment(for: bill.id)
                     onClose()

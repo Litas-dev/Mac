@@ -9,6 +9,7 @@ struct TouchBarHost: NSViewRepresentable {
     let bezelColor: NSColor
     let titleColor: NSColor
     let onTap: () -> Void
+    var onEditTap: (() -> Void)? = nil
     var onPayTap: (() -> Void)? = nil
     var onSnooze1: (() -> Void)? = nil
     var onSnooze3: (() -> Void)? = nil
@@ -17,6 +18,7 @@ struct TouchBarHost: NSViewRepresentable {
     func makeNSView(context: Context) -> TouchBarResponderView {
         let view = TouchBarResponderView()
         view.onTap = onTap
+        view.onEditTap = onEditTap
         view.onPayTap = onPayTap
         view.onSnooze1 = onSnooze1
         view.onSnooze3 = onSnooze3
@@ -30,6 +32,7 @@ struct TouchBarHost: NSViewRepresentable {
     
     func updateNSView(_ nsView: TouchBarResponderView, context: Context) {
         nsView.onTap = onTap
+        nsView.onEditTap = onEditTap
         nsView.onPayTap = onPayTap
         nsView.onSnooze1 = onSnooze1
         nsView.onSnooze3 = onSnooze3
@@ -44,6 +47,7 @@ struct TouchBarHost: NSViewRepresentable {
 
 final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     var onTap: (() -> Void)?
+    var onEditTap: (() -> Void)?
     var onPayTap: (() -> Void)?
     var onSnooze1: (() -> Void)?
     var onSnooze3: (() -> Void)?
@@ -54,41 +58,38 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     var titleColor: NSColor = .white
     
     private let nextBillID = NSTouchBarItem.Identifier("pf.touchbar.nextDueBill")
+    private let editBillID = NSTouchBarItem.Identifier("pf.touchbar.editBill")
     private let payBillID = NSTouchBarItem.Identifier("pf.touchbar.payBill")
     private let snooze1ID = NSTouchBarItem.Identifier("pf.touchbar.snooze1")
     private let snooze3ID = NSTouchBarItem.Identifier("pf.touchbar.snooze3")
     private let snoozeWeekID = NSTouchBarItem.Identifier("pf.touchbar.snoozeWeek")
     
     private weak var button: NSButton?
+    private weak var editButton: NSButton?
     private weak var payButton: NSButton?
     private weak var snooze1Button: NSButton?
     private weak var snooze3Button: NSButton?
     private weak var snoozeWeekButton: NSButton?
     
-    override var acceptsFirstResponder: Bool { true }
+    private var customTouchBar: NSTouchBar?
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard let window = self.window else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.window?.makeFirstResponder(self)
-        }
-        
-        NotificationCenter.default.addObserver(forName: NSNotification.Name("RestoreTouchBarResponder"), object: nil, queue: .main) { [weak self] _ in
-            guard let self = self, self.window != nil else { return }
-            self.window?.makeFirstResponder(self)
+            if self.customTouchBar == nil {
+                self.customTouchBar = self.createTouchBar()
+            }
+            window.touchBar = self.customTouchBar
         }
     }
     
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-    
-    override func makeTouchBar() -> NSTouchBar? {
+    private func createTouchBar() -> NSTouchBar {
         let bar = NSTouchBar()
         bar.delegate = self
         var items: [NSTouchBarItem.Identifier] = [nextBillID]
+        if onEditTap != nil { items.append(editBillID) }
         if onPayTap != nil { items.append(payBillID) }
         if onSnooze1 != nil { items.append(snooze1ID) }
         if onSnooze3 != nil { items.append(snooze3ID) }
@@ -115,6 +116,14 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
             }
             item.view = button
             self.button = button
+            return item
+        } else if identifier == editBillID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "Edit", target: self, action: #selector(editTapped))
+            button.bezelStyle = .rounded
+            button.isEnabled = isEnabled && onEditTap != nil
+            item.view = button
+            self.editButton = button
             return item
         } else if identifier == payBillID {
             let item = NSCustomTouchBarItem(identifier: identifier)
@@ -157,17 +166,34 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     func refresh() {
         button?.title = titleText
         button?.isEnabled = isEnabled
-        button?.bezelColor = bezelColor
-        if let button {
-            button.attributedTitle = NSAttributedString(string: titleText, attributes: [.foregroundColor: titleColor])
+        if bezelColor == .controlColor {
+            button?.bezelColor = bezelColor
+            button?.attributedTitle = NSAttributedString(string: titleText)
+        } else {
+            button?.bezelColor = bezelColor
+            button?.attributedTitle = NSAttributedString(string: titleText, attributes: [.foregroundColor: titleColor])
         }
+        
+        editButton?.isEnabled = isEnabled && onEditTap != nil
         payButton?.isEnabled = isEnabled && onPayTap != nil
         snooze1Button?.isEnabled = isEnabled && onSnooze1 != nil
         snooze3Button?.isEnabled = isEnabled && onSnooze3 != nil
         snoozeWeekButton?.isEnabled = isEnabled && onSnoozeWeek != nil
+        
+        var items: [NSTouchBarItem.Identifier] = [nextBillID]
+        if onEditTap != nil { items.append(editBillID) }
+        if onPayTap != nil { items.append(payBillID) }
+        if onSnooze1 != nil { items.append(snooze1ID) }
+        if onSnooze3 != nil { items.append(snooze3ID) }
+        if onSnoozeWeek != nil { items.append(snoozeWeekID) }
+        
+        if customTouchBar?.defaultItemIdentifiers != items {
+            customTouchBar?.defaultItemIdentifiers = items
+        }
     }
     
     @objc private func tapped() { onTap?() }
+    @objc private func editTapped() { onEditTap?() }
     @objc private func payTapped() { onPayTap?() }
     @objc private func snooze1Tapped() { onSnooze1?() }
     @objc private func snooze3Tapped() { onSnooze3?() }
