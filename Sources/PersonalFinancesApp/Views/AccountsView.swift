@@ -99,6 +99,12 @@ struct AccountsListView: View {
                 store.addAccount(created)
                 showingNew = false
             }
+            #if os(macOS)
+            .draggableWindow()
+            #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenAddAccount"))) { _ in
+            showingNew = true
         }
     }
     

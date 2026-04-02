@@ -40,6 +40,18 @@ struct RootSplitView: View {
         if cal.startOfDay(for: b.nextDueDate) <= cal.startOfDay(for: Date()) { return .systemRed }
         return .systemGreen
     }
+    
+    private var isAddSection: Bool {
+        selectedSection == .income || selectedSection == .accounts || selectedSection == .debts || selectedSection == .goals
+    }
+    
+    private var touchBarTitle: String {
+        if selectedSection == .income { return "Add Income" }
+        if selectedSection == .accounts { return "Add Account" }
+        if selectedSection == .debts { return "Add Debt" }
+        if selectedSection == .goals { return "Add Goal" }
+        return activeTouchBarBill?.name ?? "You are on track this month"
+    }
     #endif
     
     private var shouldShowOnboarding: Bool {
@@ -358,13 +370,19 @@ struct RootSplitView: View {
         #if os(macOS)
         .background(
             TouchBarHost(
-                title: selectedSection == .income ? "Add Income" : (activeTouchBarBill?.name ?? "You are on track this month"),
-                isEnabled: selectedSection == .income ? true : (activeTouchBarBill != nil),
-                bezelColor: selectedSection == .income ? .systemBlue : touchBarBezelColor,
+                title: touchBarTitle,
+                isEnabled: isAddSection ? true : (activeTouchBarBill != nil),
+                bezelColor: isAddSection ? .systemBlue : touchBarBezelColor,
                 titleColor: .white,
                 onTap: {
                     if selectedSection == .income {
                         showingAdd = true
+                    } else if selectedSection == .accounts {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddAccount"), object: nil)
+                    } else if selectedSection == .debts {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddDebt"), object: nil)
+                    } else if selectedSection == .goals {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddGoal"), object: nil)
                     } else {
                         guard let b = activeTouchBarBill else { return }
                         selectedSection = .overview

@@ -82,6 +82,12 @@ struct GoalsListView: View {
                 store.addGoal(created)
                 showingNew = false
             }
+            #if os(macOS)
+            .draggableWindow()
+            #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenAddGoal"))) { _ in
+            showingNew = true
         }
     }
     

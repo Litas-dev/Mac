@@ -81,6 +81,12 @@ struct DebtsListView: View {
                 store.addDebt(created)
                 showingNew = false
             }
+            #if os(macOS)
+            .draggableWindow()
+            #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenAddDebt"))) { _ in
+            showingNew = true
         }
     }
     
