@@ -27,8 +27,15 @@ struct RootSplitView: View {
     private enum DetailScreen { case info, history, stats }
     
     #if os(macOS)
+    private var activeTouchBarBill: Bill? {
+        if selectedSection == .overview, let selected = store.selectedBill {
+            return selected
+        }
+        return store.nextDueUnpaidBill
+    }
+
     private var touchBarBezelColor: NSColor {
-        guard let b = store.nextDueUnpaidBill else { return .systemGreen }
+        guard let b = activeTouchBarBill else { return .systemGreen }
         let cal = Calendar.current
         if cal.startOfDay(for: b.nextDueDate) <= cal.startOfDay(for: Date()) { return .systemRed }
         return .systemGreen
@@ -351,17 +358,18 @@ struct RootSplitView: View {
         #if os(macOS)
         .background(
             TouchBarHost(
-                title: store.nextDueUnpaidBill?.name ?? "You are on track this month",
-                isEnabled: store.nextDueUnpaidBill != nil,
+                title: activeTouchBarBill?.name ?? "You are on track this month",
+                isEnabled: activeTouchBarBill != nil,
                 bezelColor: touchBarBezelColor,
                 titleColor: .white,
                 onTap: {
-                    guard let b = store.nextDueUnpaidBill else { return }
+                    guard let b = activeTouchBarBill else { return }
                     selectedSection = .overview
                     store.selectedBillID = b.id
                     detailScreen = .info
                     touchBarActionBill = b
-                }
+                },
+                onPayTap: nil
             )
             .frame(width: 1, height: 1)
             .opacity(0.001)
@@ -872,11 +880,40 @@ private struct TouchBarBillActionsView: View {
             HStack {
                 Spacer()
                 Button("Close") { onClose() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
             }
         }
         .padding(18)
         .frame(width: 420)
+        #if os(macOS)
+        .background(
+            TouchBarHost(
+                title: "Cancel",
+                isEnabled: true,
+                bezelColor: .controlColor,
+                titleColor: .labelColor,
+                onTap: { onClose() },
+                onPayTap: {
+                    store.logPayment(for: bill.id)
+                    onClose()
+                },
+                onSnooze1: {
+                    store.snooze(for: bill.id, preset: .day1)
+                    onClose()
+                },
+                onSnooze3: {
+                    store.snooze(for: bill.id, preset: .day3)
+                    onClose()
+                },
+                onSnoozeWeek: {
+                    store.snooze(for: bill.id, preset: .nextWeek)
+                    onClose()
+                }
+            )
+            .frame(width: 1, height: 1)
+            .opacity(0.001)
+        )
+        #endif
     }
 }
 

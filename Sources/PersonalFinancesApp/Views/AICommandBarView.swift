@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct AICommandBarView: View {
     @EnvironmentObject private var store: AppStore
@@ -360,7 +363,7 @@ struct AICommandBarView: View {
         showSuggestions = false
         success = "Done: \(message)"
         input = ""
-        inputFocused = false
+        resignInputFocus()
         CommandMemoryStore.shared.record(input: lastParsedInput.isEmpty ? fallbackInput : lastParsedInput, command: cmd)
         lastParsedInput = ""
         suggestions = CommandMemoryStore.shared.recents()
@@ -381,7 +384,16 @@ struct AICommandBarView: View {
         suppressErrorsUntilInputChange = false
         showPanel = false
         showSuggestions = false
+        resignInputFocus()
+    }
+    
+    private func resignInputFocus() {
         inputFocused = false
+        #if os(macOS)
+        DispatchQueue.main.async {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+        #endif
     }
     private func refreshFavorites() {
         let rec = CommandMemoryStore.shared.recents(limit: 12)

@@ -9,10 +9,18 @@ struct TouchBarHost: NSViewRepresentable {
     let bezelColor: NSColor
     let titleColor: NSColor
     let onTap: () -> Void
+    var onPayTap: (() -> Void)? = nil
+    var onSnooze1: (() -> Void)? = nil
+    var onSnooze3: (() -> Void)? = nil
+    var onSnoozeWeek: (() -> Void)? = nil
     
     func makeNSView(context: Context) -> TouchBarResponderView {
         let view = TouchBarResponderView()
         view.onTap = onTap
+        view.onPayTap = onPayTap
+        view.onSnooze1 = onSnooze1
+        view.onSnooze3 = onSnooze3
+        view.onSnoozeWeek = onSnoozeWeek
         view.titleText = title
         view.isEnabled = isEnabled
         view.bezelColor = bezelColor
@@ -22,6 +30,10 @@ struct TouchBarHost: NSViewRepresentable {
     
     func updateNSView(_ nsView: TouchBarResponderView, context: Context) {
         nsView.onTap = onTap
+        nsView.onPayTap = onPayTap
+        nsView.onSnooze1 = onSnooze1
+        nsView.onSnooze3 = onSnooze3
+        nsView.onSnoozeWeek = onSnoozeWeek
         nsView.titleText = title
         nsView.isEnabled = isEnabled
         nsView.bezelColor = bezelColor
@@ -32,13 +44,26 @@ struct TouchBarHost: NSViewRepresentable {
 
 final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     var onTap: (() -> Void)?
+    var onPayTap: (() -> Void)?
+    var onSnooze1: (() -> Void)?
+    var onSnooze3: (() -> Void)?
+    var onSnoozeWeek: (() -> Void)?
     var titleText: String = "Next Bill"
     var isEnabled: Bool = true
     var bezelColor: NSColor = .controlAccentColor
     var titleColor: NSColor = .white
     
     private let nextBillID = NSTouchBarItem.Identifier("pf.touchbar.nextDueBill")
+    private let payBillID = NSTouchBarItem.Identifier("pf.touchbar.payBill")
+    private let snooze1ID = NSTouchBarItem.Identifier("pf.touchbar.snooze1")
+    private let snooze3ID = NSTouchBarItem.Identifier("pf.touchbar.snooze3")
+    private let snoozeWeekID = NSTouchBarItem.Identifier("pf.touchbar.snoozeWeek")
+    
     private weak var button: NSButton?
+    private weak var payButton: NSButton?
+    private weak var snooze1Button: NSButton?
+    private weak var snooze3Button: NSButton?
+    private weak var snoozeWeekButton: NSButton?
     
     override var acceptsFirstResponder: Bool { true }
     
@@ -54,21 +79,70 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     override func makeTouchBar() -> NSTouchBar? {
         let bar = NSTouchBar()
         bar.delegate = self
-        bar.defaultItemIdentifiers = [nextBillID]
+        var items: [NSTouchBarItem.Identifier] = [nextBillID]
+        if onPayTap != nil { items.append(payBillID) }
+        if onSnooze1 != nil { items.append(snooze1ID) }
+        if onSnooze3 != nil { items.append(snooze3ID) }
+        if onSnoozeWeek != nil { items.append(snoozeWeekID) }
+        bar.defaultItemIdentifiers = items
         return bar
     }
     
     func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
-        guard identifier == nextBillID else { return nil }
-        let item = NSCustomTouchBarItem(identifier: identifier)
-        let button = NSButton(title: titleText, target: self, action: #selector(tapped))
-        button.bezelColor = bezelColor
-        button.bezelStyle = .rounded
-        button.isEnabled = isEnabled
-        button.attributedTitle = NSAttributedString(string: titleText, attributes: [.foregroundColor: titleColor])
-        item.view = button
-        self.button = button
-        return item
+        if identifier == nextBillID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: titleText, target: self, action: #selector(tapped))
+            if bezelColor == .controlColor {
+                // For "Cancel" / neutral buttons, don't force text to white
+                button.bezelColor = bezelColor
+                button.bezelStyle = .rounded
+                button.isEnabled = isEnabled
+                button.title = titleText
+            } else {
+                button.bezelColor = bezelColor
+                button.bezelStyle = .rounded
+                button.isEnabled = isEnabled
+                button.attributedTitle = NSAttributedString(string: titleText, attributes: [.foregroundColor: titleColor])
+            }
+            item.view = button
+            self.button = button
+            return item
+        } else if identifier == payBillID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "Log Payment", target: self, action: #selector(payTapped))
+            button.bezelColor = .systemBlue
+            button.bezelStyle = .rounded
+            button.isEnabled = isEnabled && onPayTap != nil
+            button.attributedTitle = NSAttributedString(string: "Log Payment", attributes: [.foregroundColor: NSColor.white])
+            item.view = button
+            self.payButton = button
+            return item
+        } else if identifier == snooze1ID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "+1 Day", target: self, action: #selector(snooze1Tapped))
+            button.bezelStyle = .rounded
+            button.isEnabled = isEnabled && onSnooze1 != nil
+            item.view = button
+            self.snooze1Button = button
+            return item
+        } else if identifier == snooze3ID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "+3 Days", target: self, action: #selector(snooze3Tapped))
+            button.bezelStyle = .rounded
+            button.isEnabled = isEnabled && onSnooze3 != nil
+            item.view = button
+            self.snooze3Button = button
+            return item
+        } else if identifier == snoozeWeekID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "Next Week", target: self, action: #selector(snoozeWeekTapped))
+            button.bezelStyle = .rounded
+            button.isEnabled = isEnabled && onSnoozeWeek != nil
+            item.view = button
+            self.snoozeWeekButton = button
+            return item
+        }
+        return nil
     }
     
     func refresh() {
@@ -78,10 +152,16 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         if let button {
             button.attributedTitle = NSAttributedString(string: titleText, attributes: [.foregroundColor: titleColor])
         }
+        payButton?.isEnabled = isEnabled && onPayTap != nil
+        snooze1Button?.isEnabled = isEnabled && onSnooze1 != nil
+        snooze3Button?.isEnabled = isEnabled && onSnooze3 != nil
+        snoozeWeekButton?.isEnabled = isEnabled && onSnoozeWeek != nil
     }
     
-    @objc private func tapped() {
-        onTap?()
-    }
+    @objc private func tapped() { onTap?() }
+    @objc private func payTapped() { onPayTap?() }
+    @objc private func snooze1Tapped() { onSnooze1?() }
+    @objc private func snooze3Tapped() { onSnooze3?() }
+    @objc private func snoozeWeekTapped() { onSnoozeWeek?() }
 }
 #endif
