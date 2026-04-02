@@ -14,6 +14,7 @@ struct TouchBarHost: NSViewRepresentable {
     var onSnooze1: (() -> Void)? = nil
     var onSnooze3: (() -> Void)? = nil
     var onSnoozeWeek: (() -> Void)? = nil
+    var onReportsTap: (() -> Void)? = nil
     
     func makeNSView(context: Context) -> TouchBarResponderView {
         let view = TouchBarResponderView()
@@ -23,6 +24,7 @@ struct TouchBarHost: NSViewRepresentable {
         view.onSnooze1 = onSnooze1
         view.onSnooze3 = onSnooze3
         view.onSnoozeWeek = onSnoozeWeek
+        view.onReportsTap = onReportsTap
         view.titleText = title
         view.isEnabled = isEnabled
         view.bezelColor = bezelColor
@@ -37,6 +39,7 @@ struct TouchBarHost: NSViewRepresentable {
         nsView.onSnooze1 = onSnooze1
         nsView.onSnooze3 = onSnooze3
         nsView.onSnoozeWeek = onSnoozeWeek
+        nsView.onReportsTap = onReportsTap
         nsView.titleText = title
         nsView.isEnabled = isEnabled
         nsView.bezelColor = bezelColor
@@ -52,6 +55,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     var onSnooze1: (() -> Void)?
     var onSnooze3: (() -> Void)?
     var onSnoozeWeek: (() -> Void)?
+    var onReportsTap: (() -> Void)?
     var titleText: String = "Next Bill"
     var isEnabled: Bool = true
     var bezelColor: NSColor = .controlAccentColor
@@ -63,6 +67,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     private let snooze1ID = NSTouchBarItem.Identifier("pf.touchbar.snooze1")
     private let snooze3ID = NSTouchBarItem.Identifier("pf.touchbar.snooze3")
     private let snoozeWeekID = NSTouchBarItem.Identifier("pf.touchbar.snoozeWeek")
+    private let reportsID = NSTouchBarItem.Identifier("pf.touchbar.reports")
     
     private weak var button: NSButton?
     private weak var editButton: NSButton?
@@ -70,6 +75,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     private weak var snooze1Button: NSButton?
     private weak var snooze3Button: NSButton?
     private weak var snoozeWeekButton: NSButton?
+    private weak var reportsButton: NSButton?
     
     private var customTouchBar: NSTouchBar?
     
@@ -94,6 +100,10 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         if onSnooze1 != nil { items.append(snooze1ID) }
         if onSnooze3 != nil { items.append(snooze3ID) }
         if onSnoozeWeek != nil { items.append(snoozeWeekID) }
+        if onReportsTap != nil {
+            items.append(.flexibleSpace)
+            items.append(reportsID)
+        }
         bar.defaultItemIdentifiers = items
         return bar
     }
@@ -159,6 +169,18 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
             item.view = button
             self.snoozeWeekButton = button
             return item
+        } else if identifier == reportsID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let button = NSButton(title: "Reports", target: self, action: #selector(reportsTapped))
+            if let image = NSImage(systemSymbolName: "chart.bar", accessibilityDescription: nil) {
+                button.image = image
+                button.imagePosition = .imageLeft
+            }
+            button.bezelStyle = .rounded
+            button.isEnabled = onReportsTap != nil
+            item.view = button
+            self.reportsButton = button
+            return item
         }
         return nil
     }
@@ -179,6 +201,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         snooze1Button?.isEnabled = isEnabled && onSnooze1 != nil
         snooze3Button?.isEnabled = isEnabled && onSnooze3 != nil
         snoozeWeekButton?.isEnabled = isEnabled && onSnoozeWeek != nil
+        reportsButton?.isEnabled = onReportsTap != nil
         
         var items: [NSTouchBarItem.Identifier] = [nextBillID]
         if onEditTap != nil { items.append(editBillID) }
@@ -186,6 +209,10 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         if onSnooze1 != nil { items.append(snooze1ID) }
         if onSnooze3 != nil { items.append(snooze3ID) }
         if onSnoozeWeek != nil { items.append(snoozeWeekID) }
+        if onReportsTap != nil {
+            items.append(.flexibleSpace)
+            items.append(reportsID)
+        }
         
         if customTouchBar?.defaultItemIdentifiers != items {
             customTouchBar?.defaultItemIdentifiers = items
@@ -198,5 +225,6 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     @objc private func snooze1Tapped() { onSnooze1?() }
     @objc private func snooze3Tapped() { onSnooze3?() }
     @objc private func snoozeWeekTapped() { onSnoozeWeek?() }
+    @objc private func reportsTapped() { onReportsTap?() }
 }
 #endif

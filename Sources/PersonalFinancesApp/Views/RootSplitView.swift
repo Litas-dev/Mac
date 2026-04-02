@@ -401,7 +401,10 @@ struct RootSplitView: View {
                                 touchBarActionBill = b
                             }
                         },
-                        onPayTap: nil
+                        onPayTap: nil,
+                        onReportsTap: {
+                            selectedSection = .reports
+                        }
                     )
                 }
             }

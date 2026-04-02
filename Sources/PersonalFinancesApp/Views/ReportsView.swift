@@ -3,6 +3,9 @@ import Charts
 
 struct ReportsView: View {
     @EnvironmentObject private var store: AppStore
+    #if os(macOS)
+    @Environment(\.dismissWindow) private var dismissWindow
+    #endif
     @State private var mode: DataMode = .bills
     @State private var period: Period = .monthly
     @State private var selectedLabel: String? = nil
@@ -35,6 +38,19 @@ struct ReportsView: View {
         }
         .dynamicTypeSize(store.dynamicTypeSize)
         .environment(\.controlSize, store.controlSize)
+        #if os(macOS)
+        .background(
+            TouchBarHost(
+                title: "Close",
+                isEnabled: true,
+                bezelColor: .controlColor,
+                titleColor: .labelColor,
+                onTap: { dismissWindow(id: "reports") }
+            )
+            .frame(width: 1, height: 1)
+            .opacity(0.001)
+        )
+        #endif
     }
     
     private func header() -> some View {
