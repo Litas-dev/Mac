@@ -161,9 +161,9 @@ final class NotificationManager: NSObject {
     }
     
     private static var isRunningInAppBundle: Bool {
-        let url = Bundle.main.bundleURL
-        if url.pathExtension == "app" { return true }
-        return url.path.contains(".app/")
+        if NSClassFromString("XCTest") != nil { return false }
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return false }
+        return Bundle.main.bundleIdentifier != nil && !Bundle.main.bundlePath.hasSuffix("/usr/bin")
     }
 }
 
