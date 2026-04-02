@@ -1,17 +1,8 @@
 import SwiftUI
-import AppKit
 
 @main
 struct PersonalFinancesApp: App {
     @State private var store = AppStore.makePreview()
-    
-    private var aboutVersionString: String {
-        let short = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
-        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? ""
-        if short.isEmpty { return "" }
-        if build.isEmpty { return short }
-        return "\(short) (\(build))"
-    }
 
     var body: some Scene {
         WindowGroup("Personal Finances") {
@@ -27,14 +18,7 @@ struct PersonalFinancesApp: App {
         }
         .defaultSize(width: 1100, height: 700)
         .commands {
-            CommandGroup(after: .help) {
-                Button("About Personal Finances") {
-                    NSApp.orderFrontStandardAboutPanel(options: [
-                        .applicationVersion: aboutVersionString
-                    ])
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            }
+            PersonalFinancesCommands()
         }
 
         MenuBarExtra {
@@ -70,6 +54,13 @@ struct PersonalFinancesApp: App {
             } else {
                 Image(systemName: "dollarsign.circle")
             }
+        }
+        WindowGroup("Help", id: "help") {
+            HelpView()
+                .dynamicTypeSize(store.dynamicTypeSize)
+                .environment(\.controlSize, store.controlSize)
+                .preferredColorScheme(store.settings.preferredColorScheme)
+                .tint(store.settings.accentColor.color)
         }
         WindowGroup("Reports", id: "reports") {
             ReportsView()
