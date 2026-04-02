@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var dataAlert: DataAlert? = nil
     @State private var showImportConfirm = false
     @State private var pendingImportURL: URL? = nil
+    @State private var showBankCSVImport = false
     @State private var newBudgetKey: String = AppSettings.budgetKey(builtin: .housing)
     @State private var newBudgetAmount: String = ""
     
@@ -146,6 +147,10 @@ struct SettingsView: View {
             }
         } message: {
             Text("This will replace your current data with the selected file.")
+        }
+        .sheet(isPresented: $showBankCSVImport) {
+            BankCSVImportSheet()
+                .environmentObject(store)
         }
     }
     
@@ -519,6 +524,12 @@ struct SettingsView: View {
                         .buttonStyle(.bordered)
                         .frame(width: controlWidth, alignment: .leading)
                 }
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Import bank CSV").frame(width: labelWidth, alignment: .leading)
+                    Button("Import…") { showBankCSVImport = true }
+                        .buttonStyle(.bordered)
+                        .frame(width: controlWidth, alignment: .leading)
+                }
                 Text("Your data is stored locally on this device.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -621,7 +632,12 @@ struct SettingsView: View {
                             .frame(width: 140, alignment: .leading)
                             Text(store.settings.displayCurrencyCode).foregroundStyle(.secondary)
                         }
-                        Text("Used for the cash flow forecast when you don’t use Accounts.")
+                        Toggle("Use this balance even with Accounts", isOn: Binding(
+                            get: { store.settings.preferManualForecastBalance },
+                            set: { store.settings.preferManualForecastBalance = $0 }
+                        ))
+                        .toggleStyle(.switch)
+                        Text("When enabled, the forecast ignores account transaction history and uses this balance.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

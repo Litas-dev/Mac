@@ -74,7 +74,7 @@ struct RootSplitView: View {
             } else if selectedSection == .accounts {
                 AccountsListView()
             } else if selectedSection == .transactions {
-                HistoryListView()
+                TransactionsListView()
             } else if selectedSection == .goals {
                 GoalsListView()
             } else if selectedSection == .debts {
@@ -121,6 +121,9 @@ struct RootSplitView: View {
             } else
             if selectedSection == .accounts {
                 AccountsDetailView()
+            } else
+            if selectedSection == .transactions {
+                TransactionsDetailView()
             } else
             if selectedSection == .goals {
                 GoalsDetailView()
@@ -379,12 +382,29 @@ struct RootSplitView: View {
                         }
                     )
                 } else {
+                    let isCloseMode = editingBill != nil || editingIncome != nil || showingAdd
+                    let editAction: (() -> Void)? = {
+                        if isCloseMode { return nil }
+                        if selectedSection == .income, let inc = store.selectedIncome {
+                            return { editingIncome = inc }
+                        }
+                        if let bill = store.selectedBill {
+                            return { editingBill = bill }
+                        }
+                        return nil
+                    }()
                     TouchBarHost(
-                        title: touchBarTitle,
-                        isEnabled: isAddSection ? true : (activeTouchBarBill != nil),
-                        bezelColor: isAddSection ? .systemBlue : touchBarBezelColor,
-                        titleColor: .white,
+                        title: isCloseMode ? "Close" : touchBarTitle,
+                        isEnabled: isCloseMode ? true : (isAddSection ? true : (activeTouchBarBill != nil)),
+                        bezelColor: isCloseMode ? .controlColor : (isAddSection ? .systemBlue : touchBarBezelColor),
+                        titleColor: isCloseMode ? .labelColor : .white,
                         onTap: {
+                            if isCloseMode {
+                                editingBill = nil
+                                editingIncome = nil
+                                showingAdd = false
+                                return
+                            }
                             if selectedSection == .income {
                                 showingAdd = true
                             } else if selectedSection == .accounts {
@@ -401,6 +421,7 @@ struct RootSplitView: View {
                                 touchBarActionBill = b
                             }
                         },
+                        onEditTap: editAction,
                         onPayTap: nil,
                         onReportsTap: {
                             selectedSection = .reports
@@ -1043,6 +1064,12 @@ private struct OnboardingWizardView: View {
     @State private var budgetSubscriptions: String = ""
     @State private var budgetUtilities: String = ""
     
+    @State private var bankCSVEnabled: Bool = false
+    @State private var bankCSVCreateAccounts: Bool = true
+    @State private var bankCSVPlan: BankCSVImporter.ImportPlan? = nil
+    @State private var bankCSVError: String? = nil
+    @State private var bankCSVIsLoading: Bool = false
+    
     @State private var detectedLocalModels: [String] = []
     @State private var isDetectingModels: Bool = false
     
@@ -1163,6 +1190,96 @@ private struct OnboardingWizardView: View {
                         Text("This also sets the forecast starting balance.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Import bank history (optional)")
+                            .font(.headline)
+                        Toggle("Import transactions from bank CSV files", isOn: $bankCSVEnabled)
+                        if bankCSVEnabled {
+                            HStack(spacing: 10) {
+                                Button("Choose CSV files…") { chooseBankCSVFiles() }
+                                    .buttonStyle(.bordered)
+                                if bankCSVIsLoading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Spacer()
+                                if bankCSVPlan != nil {
+                                    Button("Clear") {
+                                        bankCSVPlan = nil
+                                        bankCSVError = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            
+                            if let err = bankCSVError, !err.isEmpty {
+                                Text(err)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                            }
+                            
+                            if let plan = bankCSVPlan {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Files: \(plan.files.count) • Transactions: \(plan.transactions.count) • Accounts found: \(plan.detectedAccounts.count)")
+                                        .foregroundStyle(.secondary)
+                                    if let a = plan.dateMin, let b = plan.dateMax {
+                                        Text("Range: \(a.formatted(date: .abbreviated, time: .omitted)) → \(b.formatted(date: .abbreviated, time: .omitted))")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.footnote)
+                                
+                                Text("Import happens when you finish setup.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                
+                                if plan.transactions.isEmpty {
+                                    Text("No transactions detected from these files.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.red)
+                                }
+                                
+                                Toggle("Create accounts found in CSV", isOn: $bankCSVCreateAccounts)
+                                    .font(.subheadline)
+                                
+                                if !plan.detectedAccounts.isEmpty {
+                                    ScrollView {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            ForEach(plan.detectedAccounts, id: \.normalizedNumber) { a in
+                                                HStack {
+                                                    Text(a.name)
+                                                    Spacer()
+                                                    Text(a.displayNumber)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                .font(.footnote)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxHeight: 70)
+                                    .padding(.top, 4)
+                                }
+                                
+                                if !plan.warnings.isEmpty {
+                                    Text("Some rows were skipped or incomplete.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text("No files selected yet.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("You can import your bank CSV files now or later.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1525,6 +1642,39 @@ private struct OnboardingWizardView: View {
         .padding(.vertical, 14)
     }
     
+    private func chooseBankCSVFiles() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.commaSeparatedText, UTType.plainText]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        if panel.runModal() == .OK {
+            let urls = panel.urls
+            Task {
+                await MainActor.run {
+                    bankCSVIsLoading = true
+                    bankCSVError = nil
+                }
+                do {
+                    let plan = try await Task.detached { try BankCSVImporter.makePlan(urls: urls) }.value
+                    await MainActor.run {
+                        bankCSVPlan = plan
+                        bankCSVEnabled = true
+                    }
+                } catch {
+                    await MainActor.run {
+                        bankCSVError = error.localizedDescription
+                    }
+                }
+                await MainActor.run {
+                    bankCSVIsLoading = false
+                }
+            }
+        }
+        #endif
+    }
+    
     private func apply() {
         let currency = store.settings.displayCurrencyCode
         var startBalance: Decimal = 0
@@ -1614,6 +1764,10 @@ private struct OnboardingWizardView: View {
             store.settings.monthlyBudgets.removeAll()
         }
         
+        if bankCSVEnabled, let plan = bankCSVPlan {
+            _ = BankCSVImportEngine.apply(plan: plan, store: store, createAccounts: bankCSVCreateAccounts)
+        }
+        
         // AI Settings are already bound directly to store.settings via Bindings, so they are saved automatically when modified in setup.
         // We just need to trigger the setter to save to UserDefaults.
         store.settings = store.settings
@@ -1694,14 +1848,14 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case income = "Income"
     case accounts = "Accounts"
-    case transactions = "Legacy Transactions"
+    case transactions = "Transactions"
     case goals = "Goals"
     case debts = "Debts"
     case dueSoon = "Due Soon"
     case dueThisMonth = "Due This Month"
     case monthlySummary = "Monthly Summary"
     case deferred = "Deferred"
-    case paidRecently = "Transactions"
+    case paidRecently = "Bill Payments"
     case reports = "Reports"
     case settings = "Settings"
     var id: String { rawValue }

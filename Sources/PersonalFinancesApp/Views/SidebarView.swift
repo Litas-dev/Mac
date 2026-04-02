@@ -64,7 +64,7 @@ struct SidebarView: View {
             }
             if store.settings.dashboardStyle == .advanced {
                 Section("Core") {
-                    ForEach([SidebarSection.accounts, .goals, .debts]) { s in
+                    ForEach([SidebarSection.accounts, .transactions, .goals, .debts]) { s in
                         NavigationLink(value: s) {
                             HStack(alignment: .center, spacing: 10) {
                                 Image(systemName: icon(for: s))
@@ -151,7 +151,12 @@ struct SidebarView: View {
             let count = store.accounts.filter { !$0.archived }.count
             return count == 0 ? "No Accounts" : (count == 1 ? "1 account" : "\(count) accounts")
         case .transactions:
-            return recentActivitySubtitle()
+            let now = Date()
+            let past = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+            let count = store.transactions.filter { $0.date >= past }.count
+            if count == 0 { return "No activity" }
+            if count == 1 { return "1 item" }
+            return "\(count) items"
         case .goals:
             let count = store.goals.filter { !$0.archived }.count
             return count == 0 ? "No Goals" : (count == 1 ? "1 goal" : "\(count) goals")

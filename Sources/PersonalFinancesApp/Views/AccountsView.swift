@@ -42,8 +42,13 @@ struct AccountsListView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text(currency(store.balance(forAccountId: a.id), code: a.currencyCode))
-                                .monospacedDigit()
+                            if store.settings.preferManualForecastBalance {
+                                Text("—")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(currency(store.balance(forAccountId: a.id), code: a.currencyCode))
+                                    .monospacedDigit()
+                            }
                         }
                         .padding(.vertical, 6)
                         .contentShape(Rectangle())
@@ -153,8 +158,14 @@ struct AccountsDetailView: View {
                     HStack {
                         Text("Balance").font(.headline)
                         Spacer()
-                        Text(currency(store.balance(forAccountId: a.id), code: a.currencyCode))
-                            .font(.title3.monospacedDigit())
+                        if store.settings.preferManualForecastBalance {
+                            Text("—")
+                                .font(.title3.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(currency(store.balance(forAccountId: a.id), code: a.currencyCode))
+                                .font(.title3.monospacedDigit())
+                        }
                     }
                     
                     if let institution = a.institution, !institution.isEmpty {
@@ -177,6 +188,11 @@ struct AccountsDetailView: View {
                         .filter { $0.accountId == a.id || $0.toAccountId == a.id }
                         .sorted(by: { $0.date > $1.date })
                         .prefix(10)
+                    if store.settings.preferManualForecastBalance {
+                        Text("Balances are hidden because manual forecast balance is enabled.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     if recent.isEmpty {
                         Text("No transactions yet.").foregroundStyle(.secondary)
                     } else {

@@ -148,16 +148,27 @@ struct DashboardView: View {
                         HStack {
                             Text("Accounts").font(.headline)
                             Spacer()
-                            Text("Net Worth: " + currency(store.netWorth(in: store.settings.displayCurrencyCode)))
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                            if store.settings.preferManualForecastBalance {
+                                Text("Balances hidden")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Net Worth: " + currency(store.netWorth(in: store.settings.displayCurrencyCode)))
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        ForEach(active.sorted(by: { store.balance(forAccountId: $0.id) > store.balance(forAccountId: $1.id) }).prefix(5)) { a in
+                        ForEach(active.sorted(by: { $0.name < $1.name }).prefix(5)) { a in
                             HStack {
                                 Text(a.name)
                                 Spacer()
-                                Text(currency(store.balance(forAccountId: a.id)))
-                                    .monospacedDigit()
+                                if store.settings.preferManualForecastBalance {
+                                    Text("—")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text(currency(store.balance(forAccountId: a.id)))
+                                        .monospacedDigit()
+                                }
                             }
                             .font(.footnote)
                             .foregroundStyle(.secondary)

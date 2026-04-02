@@ -138,6 +138,8 @@ struct AppSettings: Codable {
     var monthlyBudgets: [String: Decimal] = [:]
     // Current available balance used for forecast (manual input)
     var availableBalance: Decimal = 0
+    // If true, forecast uses availableBalance even when Accounts exist
+    var preferManualForecastBalance: Bool = false
     // AI External API Key (stored in UserDefaults/AppSettings to avoid Keychain prompts)
     var aiExternalAPIKey: String? = nil
 }
@@ -641,6 +643,9 @@ final class AppStore: ObservableObject {
     }
     
     var computedAvailableBalance: Decimal {
+        if settings.preferManualForecastBalance {
+            return settings.availableBalance
+        }
         let activeAccounts = accounts.filter { !$0.archived }
         if activeAccounts.isEmpty {
             return settings.availableBalance
