@@ -24,6 +24,7 @@ struct RootSplitView: View {
     @State private var touchBarActionBill: Bill?
     @AppStorage("overviewDisplayMode") private var overviewDisplayMode: Int = 0
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding: Bool = false
+    @AppStorage("settingsSelectedSection") private var settingsSelectedSection: String = "general"
     private enum DetailScreen { case info, history, stats }
     
     #if os(macOS)
@@ -369,30 +370,41 @@ struct RootSplitView: View {
         }
         #if os(macOS)
         .background(
-            TouchBarHost(
-                title: touchBarTitle,
-                isEnabled: isAddSection ? true : (activeTouchBarBill != nil),
-                bezelColor: isAddSection ? .systemBlue : touchBarBezelColor,
-                titleColor: .white,
-                onTap: {
-                    if selectedSection == .income {
-                        showingAdd = true
-                    } else if selectedSection == .accounts {
-                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddAccount"), object: nil)
-                    } else if selectedSection == .debts {
-                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddDebt"), object: nil)
-                    } else if selectedSection == .goals {
-                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddGoal"), object: nil)
-                    } else {
-                        guard let b = activeTouchBarBill else { return }
-                        selectedSection = .overview
-                        store.selectedBillID = b.id
-                        detailScreen = .info
-                        touchBarActionBill = b
-                    }
-                },
-                onPayTap: nil
-            )
+            Group {
+                if selectedSection == .settings {
+                    SettingsTouchBarHost(
+                        selectedSection: settingsSelectedSection,
+                        onSelect: { sectionId in
+                            settingsSelectedSection = sectionId
+                        }
+                    )
+                } else {
+                    TouchBarHost(
+                        title: touchBarTitle,
+                        isEnabled: isAddSection ? true : (activeTouchBarBill != nil),
+                        bezelColor: isAddSection ? .systemBlue : touchBarBezelColor,
+                        titleColor: .white,
+                        onTap: {
+                            if selectedSection == .income {
+                                showingAdd = true
+                            } else if selectedSection == .accounts {
+                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddAccount"), object: nil)
+                            } else if selectedSection == .debts {
+                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddDebt"), object: nil)
+                            } else if selectedSection == .goals {
+                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddGoal"), object: nil)
+                            } else {
+                                guard let b = activeTouchBarBill else { return }
+                                selectedSection = .overview
+                                store.selectedBillID = b.id
+                                detailScreen = .info
+                                touchBarActionBill = b
+                            }
+                        },
+                        onPayTap: nil
+                    )
+                }
+            }
             .frame(width: 1, height: 1)
             .opacity(0.001)
         )
