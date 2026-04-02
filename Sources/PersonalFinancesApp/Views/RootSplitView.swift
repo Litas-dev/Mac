@@ -21,6 +21,7 @@ struct RootSplitView: View {
     @State private var placeholderTitle: String = ""
     @State private var showResetAlert: Bool = false
     @State private var aiResetToken: UUID = UUID()
+    @State private var touchBarActionBill: Bill?
     @AppStorage("overviewDisplayMode") private var overviewDisplayMode: Int = 0
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding: Bool = false
     private enum DetailScreen { case info, history, stats }
@@ -350,10 +351,11 @@ struct RootSplitView: View {
         }
         .touchBar {
             if let b = touchBarNextDueBill {
-                Button("Pay: \(b.name)") {
+                Button("Due: \(b.name)") {
                     selectedSection = .overview
                     store.selectedBillID = b.id
                     detailScreen = .info
+                    touchBarActionBill = b
                 }
             } else {
                 Text("No bills due")
@@ -471,6 +473,23 @@ struct RootSplitView: View {
             OnboardingWizardView(isPresented: $store.showOnboardingWizard)
                 .environmentObject(store)
                 .interactiveDismissDisabled()
+        }
+        .confirmationDialog(
+            "Manage Bill",
+            isPresented: Binding(
+                get: { touchBarActionBill != nil },
+                set: { if !$0 { touchBarActionBill = nil } }
+            ),
+            presenting: touchBarActionBill
+        ) { bill in
+            Button("Log Payment") { store.logPayment(for: bill.id) }
+            Button("Snooze +1 Day") { store.snooze(for: bill.id, preset: .day1) }
+            Button("Snooze +3 Days") { store.snooze(for: bill.id, preset: .day3) }
+            Button("Snooze Next Week") { store.snooze(for: bill.id, preset: .nextWeek) }
+            Button("Edit Details…") { editingBill = bill }
+            Button("Cancel", role: .cancel) { }
+        } message: { bill in
+            Text("\(bill.name) is due \(fullDate(bill.nextDueDate)).")
         }
     }
 
