@@ -482,7 +482,7 @@ struct RootSplitView: View {
             Text("\(bill.name) is due \(fullDate(bill.nextDueDate)).")
         }
     }
-
+    
     @ViewBuilder
     private func billDetailContent(_ bill: Bill) -> some View {
         VStack(alignment: .leading, spacing: 16) {
