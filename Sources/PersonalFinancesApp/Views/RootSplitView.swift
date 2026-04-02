@@ -33,16 +33,6 @@ struct RootSplitView: View {
         let hasAccounts = store.accounts.contains(where: { !$0.archived })
         return !(hasBills || hasIncome || hasAccounts)
     }
-    
-    private var touchBarNextDueBill: Bill? {
-        let eligible = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }
-        return eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
-    }
-
-    private var nextDueUnpaidBill: Bill? {
-        let eligible = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }
-        return eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
-    }
 
     var body: some View {
         NavigationSplitView {
@@ -350,7 +340,7 @@ struct RootSplitView: View {
             showIncomeCalendarDropdown = false
         }
         .touchBar {
-            if let b = touchBarNextDueBill {
+            if let b = store.nextDueUnpaidBill {
                 Button("Due: \(b.name)") {
                     selectedSection = .overview
                     store.selectedBillID = b.id

@@ -5,6 +5,41 @@ struct PersonalFinancesApp: App {
     @State private var store = AppStore.makePreview()
 
     var body: some Scene {
+        MenuBarExtra {
+            if let b = store.nextDueUnpaidBill {
+                Text("Next Due: \(b.name)")
+                Text("Due: \(b.nextDueDate.formatted(date: .abbreviated, time: .omitted))")
+                Text("Amount: \(b.amount.value.formatted(.currency(code: b.amount.currencyCode)))")
+                Divider()
+                Button("Log Payment") {
+                    store.logPayment(for: b.id)
+                }
+                Button("Snooze +1 Day") {
+                    store.snooze(for: b.id, preset: .day1)
+                }
+                Divider()
+            } else {
+                Text("No bills due")
+                Divider()
+            }
+            Button("Open Personal Finances") {
+                NSApp.activate(ignoringOtherApps: true)
+                for window in NSApp.windows {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        } label: {
+            if let b = store.nextDueUnpaidBill {
+                Image(systemName: "bell.fill")
+                Text(b.name)
+            } else {
+                Image(systemName: "dollarsign.circle")
+            }
+        }
+        
         WindowGroup("Personal Finances") {
             RootSplitView()
                 .environmentObject(store)
@@ -266,6 +301,11 @@ final class AppStore: ObservableObject {
     let transactionRepository: TransactionRepository
     let goalRepository: GoalRepository
     let debtRepository: DebtRepository
+
+    var nextDueUnpaidBill: Bill? {
+        let eligible = bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }
+        return eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
+    }
 
     init(
         bills: [Bill],
