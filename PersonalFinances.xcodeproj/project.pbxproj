@@ -12,7 +12,6 @@
 		46BD9CB5F6C54FC0682F14A3 /* RootSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F8B6D4E26D87960EC95098 /* RootSplitView.swift */; };
 		595D5ABEBDB44CF95E81E220 /* BillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35103AF6D2918BF69800010C /* BillTests.swift */; };
 		614572BABE40AD104E7B8B58 /* Entitlements.mac.plist in Resources */ = {isa = PBXBuildFile; fileRef = 696BAAFCFB3A42B4A4C1059C /* Entitlements.mac.plist */; };
-		74023BA441F87809A43328CB /* BillDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252A33ACAD0175C5132AF651 /* BillDetailView.swift */; };
 		783475DDCF62E6F7BCB60093 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B805FE8279CC06E153CBB7 /* SidebarView.swift */; };
 		92CF3CA0848D5A48EE6FA210 /* BillsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8605711D8AAF8D985261698E /* BillsListView.swift */; };
 		CA8335B3A68CB3A07C7C7AFC /* BillRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D245CDEC9648409F12142C /* BillRepository.swift */; };
@@ -34,7 +33,6 @@
 /* Begin PBXFileReference section */
 		0000FEA431F85F7F279D5D42 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		07AC510C5C3598A3FF8AAEE1 /* Recurrence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recurrence.swift; sourceTree = "<group>"; };
-		252A33ACAD0175C5132AF651 /* BillDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillDetailView.swift; sourceTree = "<group>"; };
 		25B805FE8279CC06E153CBB7 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		35103AF6D2918BF69800010C /* BillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillTests.swift; sourceTree = "<group>"; };
 		3C44DC0BBE9235BD54509E3F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -78,7 +76,6 @@
 		533E35485BB16EAC6E99995B /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				252A33ACAD0175C5132AF651 /* BillDetailView.swift */,
 				8605711D8AAF8D985261698E /* BillsListView.swift */,
 				51F8B6D4E26D87960EC95098 /* RootSplitView.swift */,
 				25B805FE8279CC06E153CBB7 /* SidebarView.swift */,
@@ -238,7 +235,6 @@
 			files = (
 				E5F8613F72A53F4378745093 /* App.swift in Sources */,
 				156315BBC6702DC61486F4CC /* Bill.swift in Sources */,
-				74023BA441F87809A43328CB /* BillDetailView.swift in Sources */,
 				CA8335B3A68CB3A07C7C7AFC /* BillRepository.swift in Sources */,
 				92CF3CA0848D5A48EE6FA210 /* BillsListView.swift in Sources */,
 				E646A1CDF0A4548CFCE7B87A /* NotificationManager.swift in Sources */,
