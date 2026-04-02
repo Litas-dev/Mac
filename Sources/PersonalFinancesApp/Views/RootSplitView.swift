@@ -342,12 +342,20 @@ struct RootSplitView: View {
         }
         .touchBar {
             if let b = store.nextDueUnpaidBill {
-                Button("Due: \(b.name)") {
+                Button {
+                    // Update state variables to select and show the bill
                     selectedSection = .overview
                     store.selectedBillID = b.id
                     detailScreen = .info
+                    
+                    // Assign bill for alert and trigger the alert immediately
                     touchBarActionBill = b
-                    showTouchBarAlert = true
+                    DispatchQueue.main.async {
+                        showTouchBarAlert = true
+                    }
+                } label: {
+                    Image(systemName: "bell.fill")
+                    Text("Due: \(b.name)")
                 }
             } else {
                 Text("No bills due")
