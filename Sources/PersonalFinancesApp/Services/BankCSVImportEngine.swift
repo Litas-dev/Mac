@@ -12,6 +12,7 @@ enum BankCSVImportEngine {
         var result = Result(createdAccounts: 0, importedTransactions: 0, skippedDuplicates: 0, skippedUnassigned: 0)
         store.performBatchUpdate {
             store.settings.preferManualForecastBalance = true
+            store.settings.hideAccountBalances = true
             result = _apply(plan: plan, store: store, createAccounts: createAccounts)
         }
         return result

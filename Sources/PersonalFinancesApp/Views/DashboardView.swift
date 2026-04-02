@@ -148,7 +148,7 @@ struct DashboardView: View {
                         HStack {
                             Text("Accounts").font(.headline)
                             Spacer()
-                            if store.settings.preferManualForecastBalance {
+                            if store.settings.hideAccountBalances {
                                 Text("Balances hidden")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
@@ -162,7 +162,7 @@ struct DashboardView: View {
                             HStack {
                                 Text(a.name)
                                 Spacer()
-                                if store.settings.preferManualForecastBalance {
+                                if store.settings.hideAccountBalances {
                                     Text("—")
                                         .foregroundStyle(.secondary)
                                 } else {

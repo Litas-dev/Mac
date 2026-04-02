@@ -637,6 +637,11 @@ struct SettingsView: View {
                             set: { store.settings.preferManualForecastBalance = $0 }
                         ))
                         .toggleStyle(.switch)
+                        Toggle("Hide account balances", isOn: Binding(
+                            get: { store.settings.hideAccountBalances },
+                            set: { store.settings.hideAccountBalances = $0 }
+                        ))
+                        .toggleStyle(.switch)
                         Text("When enabled, the forecast ignores account transaction history and uses this balance.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)

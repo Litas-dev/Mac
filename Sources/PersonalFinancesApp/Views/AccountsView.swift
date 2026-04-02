@@ -42,7 +42,7 @@ struct AccountsListView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if store.settings.preferManualForecastBalance {
+                            if store.settings.hideAccountBalances {
                                 Text("—")
                                     .foregroundStyle(.secondary)
                             } else {
@@ -157,7 +157,7 @@ struct AccountsDetailView: View {
                     HStack {
                         Text("Balance").font(.headline)
                         Spacer()
-                        if store.settings.preferManualForecastBalance {
+                        if store.settings.hideAccountBalances {
                             Text("—")
                                 .font(.title3.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -187,8 +187,8 @@ struct AccountsDetailView: View {
                         .filter { $0.accountId == a.id || $0.toAccountId == a.id }
                         .sorted(by: { $0.date > $1.date })
                         .prefix(10)
-                    if store.settings.preferManualForecastBalance {
-                        Text("Balances are hidden because manual forecast balance is enabled.")
+                    if store.settings.hideAccountBalances {
+                        Text("Balances are hidden. You can show them in Settings → Budgets.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

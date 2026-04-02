@@ -150,6 +150,8 @@ struct AppSettings: Codable {
     var availableBalance: Decimal = 0
     // If true, forecast uses availableBalance even when Accounts exist
     var preferManualForecastBalance: Bool = false
+    // If true, hide account balances/net worth in UI (useful after importing transaction history without opening balances)
+    var hideAccountBalances: Bool = false
     // AI External API Key (stored in UserDefaults/AppSettings to avoid Keychain prompts)
     var aiExternalAPIKey: String? = nil
 }
