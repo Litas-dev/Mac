@@ -2,6 +2,11 @@
 
 Personal Finances is a native macOS SwiftUI app for tracking bills, incomes, accounts, goals, debts, and basic reporting.
 
+## Version
+- Current: 0.2.0 (pre-alpha)
+- Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
+- Build number: increments over time (used as CFBundleVersion)
+
 ## Features
 - Bills management: due dates, recurrence, snooze, skip, log payments.
 - Income tracking: next pay dates, filtering, receipts.
