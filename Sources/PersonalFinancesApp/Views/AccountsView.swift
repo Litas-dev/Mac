@@ -73,7 +73,6 @@ struct AccountsListView: View {
             .searchable(text: $search)
         }
         .alert("Delete account?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), presenting: pendingDelete) { a in
-            let count = store.transactions.filter { $0.accountId == a.id || $0.toAccountId == a.id }.count
             Button("Archive Instead") {
                 var updated = a
                 updated.archived = true
@@ -226,7 +225,6 @@ struct AccountsDetailView: View {
                 .padding()
             }
             .alert("Delete account?", isPresented: $showDeleteConfirm) {
-                let count = store.transactions.filter { $0.accountId == a.id || $0.toAccountId == a.id }.count
                 Button("Archive Instead") {
                     var updated = a
                     updated.archived = true

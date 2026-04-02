@@ -67,284 +67,9 @@ struct RootSplitView: View {
         NavigationSplitView {
             SidebarView(selected: $selectedSection)
         } content: {
-            if selectedSection == .settings {
-                SettingsView()
-            } else if selectedSection == .income {
-                IncomeListView()
-            } else if selectedSection == .accounts {
-                AccountsListView()
-            } else if selectedSection == .transactions {
-                TransactionsListView()
-            } else if selectedSection == .goals {
-                GoalsListView()
-            } else if selectedSection == .debts {
-                DebtsListView()
-            } else if selectedSection == .paidRecently {
-                HistoryListView()
-            } else if selectedSection == .overview {
-                DashboardView()
-            } else if selectedSection == .monthlySummary {
-                HistoryListView()
-            } else if selectedSection == .deferred {
-                BillsListView(section: selectedSection ?? .overview, onEdit: { bill in
-                    editingBill = bill
-                })
-            } else {
-                BillsListView(section: selectedSection ?? .overview, onEdit: { bill in
-                    editingBill = bill
-                })
-            }
+            masterContent
         } detail: {
-            if selectedSection == .settings {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Spacer(minLength: 28)
-                        Text("Privacy")
-                            .font(.headline)
-                        Divider()
-                        Text("We collect anonymous device information (CPU type and macOS version) to improve compatibility and performance.")
-                            .foregroundStyle(.secondary)
-                        Text("No personal data is collected.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary.opacity(0.8))
-                            .padding(.top, 2)
-                        Toggle("Share anonymous device data", isOn: Binding(
-                            get: { store.settings.shareAnonymousData },
-                            set: { store.settings.shareAnonymousData = $0 }
-                        ))
-                        .toggleStyle(.switch)
-                        .padding(.top, 6)
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom)
-                }
-            } else
-            if selectedSection == .accounts {
-                AccountsDetailView()
-            } else
-            if selectedSection == .transactions {
-                TransactionsDetailView()
-            } else
-            if selectedSection == .goals {
-                GoalsDetailView()
-            } else
-            if selectedSection == .debts {
-                DebtsDetailView()
-            } else
-            if (selectedSection == .income || selectedSection == .monthlySummary), let income = store.selectedIncome {
-                VStack(spacing: 0) {
-                    if showIncomeCalendarDropdown {
-                        IncomeCalendarView(showHideControl: true, isVisible: true, onToggle: {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                showIncomeCalendarDropdown.toggle()
-                            }
-                        })
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        Divider()
-                    } else {
-                        HStack {
-                            Spacer()
-                            Button {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                    showIncomeCalendarDropdown = true
-                                }
-                            } label: {
-                                Image(systemName: "eye")
-                                    .font(.title3.weight(.bold))
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, 8)
-                        }
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Next Payment")
-                                            .font(.title2.bold())
-                                        Text(fullDate(income.nextPayDate))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Text(currency(amount: income.amount))
-                                        .font(.title3.monospacedDigit())
-                                }
-                                let isOnce = (income.recurrence == .once)
-                                let received = income.receipts.contains { Calendar.current.isDate($0.date, inSameDayAs: income.nextPayDate) }
-                                HStack(spacing: 12) {
-                                    if !received {
-                                        Button("Log Receipt") { store.logReceipt(for: income.id) }
-                                    }
-                                    if !isOnce {
-                                        Button("Handle Later") { store.skipIncome(for: income.id) }
-                                    }
-                                    Button("Edit") { editingIncome = income }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                do {
-                                    let cal = Calendar.current
-                                    let d = cal.dateComponents([.day], from: cal.startOfDay(for: Date()), to: cal.startOfDay(for: income.nextPayDate)).day ?? 0
-                                    if !received && d <= 0 {
-                                        GroupBox {
-                                            HStack(alignment: .center, spacing: 12) {
-                                                Image(systemName: "envelope.badge")
-                                                    .foregroundStyle(d == 0 ? .orange : .purple)
-                                                    .font(.title2.weight(.bold))
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(d == 0 ? "Expected today" : "Awaiting receipt")
-                                                        .font(.headline)
-                                                    Text("Confirm when this one‑time income is received.")
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                                Spacer()
-                                            }
-                                            .padding(.vertical, 6)
-                                        }
-                                    }
-                                }
-                                if let notes = income.notes, !notes.isEmpty {
-                                    GroupBox {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text("Notes").font(.headline)
-                                            Text(notes).foregroundStyle(.secondary)
-                                        }.frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                            .padding()
-                        }
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .padding(.trailing)
-            } else if selectedSection == .paidRecently, let income = store.selectedIncome {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        let date = store.selectedIncomeDay ?? income.nextPayDate
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(income.name).font(.title2.bold())
-                            Text("Income • \(income.source.rawValue.capitalized)").foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Text(fullDate(date)).foregroundStyle(.secondary)
-                            Spacer()
-                            Text(currency(amount: income.amount)).font(Typography.amountFont(for: store.settings))
-                                .foregroundStyle(.green)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Type: Income").font(.subheadline).foregroundStyle(.secondary)
-                            Text("Category: \(income.source.rawValue.capitalized)").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        if let notes = income.notes, !notes.isEmpty {
-                            Divider()
-                            GroupBox {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Notes").font(.headline)
-                                    Text(notes).foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        Divider()
-                        HStack(spacing: 12) {
-                            Button("Edit") { editingIncome = income }
-                            Button(role: .destructive) { 
-                                store.incomes.removeAll { $0.id == income.id }
-                                store.selectedIncomeID = nil
-                            } label: { Text("Delete") }
-                        }
-                    }
-                    .padding()
-                }
-                .padding(.trailing)
-            } else if selectedSection == .income {
-                IncomeCalendarView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else if (selectedSection == .overview || selectedSection == .dueSoon || selectedSection == .dueThisMonth || selectedSection == .paidRecently || selectedSection == .deferred || selectedSection == .monthlySummary), let bill = store.selectedBill {
-                VStack(spacing: 0) {
-                    if selectedSection == .overview {
-                        if showCalendarDropdown {
-                            CalendarOverviewView(showHideControl: true, isVisible: true, onToggle: {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                    showCalendarDropdown.toggle()
-                                }
-                            })
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            Divider()
-                        } else {
-                            HStack {
-                                Spacer()
-                                Button {
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                        showCalendarDropdown = true
-                                    }
-                                } label: {
-                                    Image(systemName: "eye")
-                                        .font(.title3.weight(.bold))
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.trailing, 8)
-                            }
-                            ScrollView { billDetailContent(bill) }
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-            } else if selectedSection == .paidRecently {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                let date = store.selectedDay ?? bill.payments.max(by: { $0.date < $1.date })?.date ?? bill.nextDueDate
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(bill.name).font(.title2.bold())
-                                    Text("Bill • \(bill.category.rawValue.capitalized)").foregroundStyle(.secondary)
-                                }
-                                HStack {
-                                    Text(fullDate(date)).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text(currency(amount: bill.amount)).font(Typography.amountFont(for: store.settings))
-                                }
-                                Text("Status: Paid").foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Type: Bill").font(.subheadline).foregroundStyle(.secondary)
-                                    Text("Category: \(bill.category.rawValue.capitalized)").font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                if let notes = bill.notes, !notes.isEmpty {
-                                    Divider()
-                                    GroupBox {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text("Notes").font(.headline)
-                                            Text(notes).foregroundStyle(.secondary)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                                Divider()
-                                HStack(spacing: 12) {
-                                    Button("Edit") { editingBill = bill }
-                                    Button(role: .destructive) {
-                                        store.bills.removeAll { $0.id == bill.id }
-                                        store.selectedBillID = nil
-                                    } label: { Text("Delete") }
-                                }
-                            }
-                            .padding()
-                        }
-                    } else {
-                        ScrollView { billDetailContent(bill) }
-                    }
-                }
-                .padding(.trailing)
-            } else if selectedSection == .overview {
-                CalendarOverviewView(showHideControl: true, isVisible: true, onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        showCalendarDropdown = false
-                    }
-                })
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else if selectedSection == .deferred {
-                ContentUnavailableView("Deferred bills", systemImage: "pause.circle", description: Text("These are bills you chose to handle later. They will return automatically based on your postpone time."))
-            } else {
-                ContentUnavailableView("Select a transaction", systemImage: "list.bullet.rectangle.portrait", description: Text("Choose a bill or income to view its details"))
-            }
+            detailContent
         }
         .onChange(of: selectedSection) { newValue in
             if newValue == .reports {
@@ -464,8 +189,10 @@ struct RootSplitView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenEditBill"))) { notification in
-            if let id = notification.object as? UUID, let b = store.bills.first(where: { $0.id == id }) {
-                editingBill = b
+            guard let id = notification.object as? UUID else { return }
+            let match = store.bills.first(where: { $0.id == id })
+            if let match {
+                editingBill = match
             }
         }
         .popover(item: $editingBill) { b in
@@ -484,13 +211,13 @@ struct RootSplitView: View {
             .draggableWindow()
             #endif
         }
-        .onChange(of: editingBill) { _, newValue in
+        .onChange(of: editingBill) { newValue in
             if newValue != nil { aiResetToken = UUID() }
         }
-        .onChange(of: editingIncome) { _, newValue in
+        .onChange(of: editingIncome) { newValue in
             if newValue != nil { aiResetToken = UUID() }
         }
-        .onChange(of: showingAdd) { _, newValue in
+        .onChange(of: showingAdd) { newValue in
             aiResetToken = UUID()
         }
         .popover(isPresented: $showingAdd) {
@@ -910,6 +637,324 @@ struct RootSplitView: View {
         var updated = bill
         updated.attachments.removeAll(where: { $0.id == attachment.id })
         store.update(updated)
+    }
+    
+    @ViewBuilder
+    private var masterContent: some View {
+        if selectedSection == .settings {
+            SettingsView()
+        } else if selectedSection == .income {
+            IncomeListView()
+        } else if selectedSection == .accounts {
+            AccountsListView()
+        } else if selectedSection == .transactions {
+            TransactionsListView()
+        } else if selectedSection == .goals {
+            GoalsListView()
+        } else if selectedSection == .debts {
+            DebtsListView()
+        } else if selectedSection == .paidRecently {
+            HistoryListView()
+        } else if selectedSection == .overview {
+            DashboardView()
+        } else if selectedSection == .monthlySummary {
+            HistoryListView()
+        } else if selectedSection == .deferred {
+            BillsListView(section: selectedSection ?? .overview, onEdit: { bill in
+                editingBill = bill
+            })
+        } else {
+            BillsListView(section: selectedSection ?? .overview, onEdit: { bill in
+                editingBill = bill
+            })
+        }
+    }
+    
+    @ViewBuilder
+    private var detailContent: some View {
+        if selectedSection == .settings {
+            settingsPrivacyDetail
+        } else if selectedSection == .accounts {
+            AccountsDetailView()
+        } else if selectedSection == .transactions {
+            TransactionsDetailView()
+        } else if selectedSection == .goals {
+            GoalsDetailView()
+        } else if selectedSection == .debts {
+            DebtsDetailView()
+        } else if (selectedSection == .income || selectedSection == .monthlySummary), let income = store.selectedIncome {
+            incomeDetail(income)
+        } else if selectedSection == .paidRecently, let income = store.selectedIncome {
+            incomePaymentDetail(income)
+        } else if selectedSection == .income {
+            IncomeCalendarView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if (selectedSection == .overview || selectedSection == .dueSoon || selectedSection == .dueThisMonth || selectedSection == .paidRecently || selectedSection == .deferred || selectedSection == .monthlySummary),
+                  let bill = store.selectedBill {
+            billDetail(bill)
+        } else if selectedSection == .overview {
+            CalendarOverviewView(showHideControl: true, isVisible: true, onToggle: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    showCalendarDropdown = false
+                }
+            })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if selectedSection == .deferred {
+            unavailableView("Deferred bills", systemImage: "pause.circle", description: Text("These are bills you chose to handle later. They will return automatically based on your postpone time."))
+        } else {
+            unavailableView("Select a transaction", systemImage: "list.bullet.rectangle.portrait", description: Text("Choose a bill or income to view its details"))
+        }
+    }
+    
+    @ViewBuilder
+    private func unavailableView(_ title: String, systemImage: String, description: Text) -> some View {
+        if #available(macOS 14.0, *) {
+            ContentUnavailableView(title, systemImage: systemImage, description: description)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                description
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    
+    private var settingsPrivacyDetail: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Spacer(minLength: 28)
+                Text("Privacy")
+                    .font(.headline)
+                Divider()
+                Text("We collect anonymous device information (CPU type and macOS version) to improve compatibility and performance.")
+                    .foregroundStyle(.secondary)
+                Text("No personal data is collected.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary.opacity(0.8))
+                    .padding(.top, 2)
+                Toggle("Share anonymous device data", isOn: Binding(
+                    get: { store.settings.shareAnonymousData },
+                    set: { store.settings.shareAnonymousData = $0 }
+                ))
+                .toggleStyle(.switch)
+                .padding(.top, 6)
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
+        }
+    }
+    
+    private func incomeDetail(_ income: Income) -> some View {
+        VStack(spacing: 0) {
+            if showIncomeCalendarDropdown {
+                IncomeCalendarView(showHideControl: true, isVisible: true, onToggle: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        showIncomeCalendarDropdown.toggle()
+                    }
+                })
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                Divider()
+            } else {
+                HStack {
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            showIncomeCalendarDropdown = true
+                        }
+                    } label: {
+                        Image(systemName: "eye")
+                            .font(.title3.weight(.bold))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Next Payment")
+                                    .font(.title2.bold())
+                                Text(fullDate(income.nextPayDate))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(currency(amount: income.amount))
+                                .font(.title3.monospacedDigit())
+                        }
+                        let isOnce = (income.recurrence == .once)
+                        let received = income.receipts.contains { Calendar.current.isDate($0.date, inSameDayAs: income.nextPayDate) }
+                        HStack(spacing: 12) {
+                            if !received {
+                                Button("Log Receipt") { store.logReceipt(for: income.id) }
+                            }
+                            if !isOnce {
+                                Button("Handle Later") { store.skipIncome(for: income.id) }
+                            }
+                            Button("Edit") { editingIncome = income }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        do {
+                            let cal = Calendar.current
+                            let d = cal.dateComponents([.day], from: cal.startOfDay(for: Date()), to: cal.startOfDay(for: income.nextPayDate)).day ?? 0
+                            if !received && d <= 0 {
+                                GroupBox {
+                                    HStack(alignment: .center, spacing: 12) {
+                                        Image(systemName: "envelope.badge")
+                                            .foregroundStyle(d == 0 ? .orange : .purple)
+                                            .font(.title2.weight(.bold))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(d == 0 ? "Expected today" : "Awaiting receipt")
+                                                .font(.headline)
+                                            Text("Confirm when this one‑time income is received.")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                        if let notes = income.notes, !notes.isEmpty {
+                            GroupBox {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Notes").font(.headline)
+                                    Text(notes).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .padding(.trailing)
+    }
+    
+    private func incomePaymentDetail(_ income: Income) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                let date = store.selectedIncomeDay ?? income.nextPayDate
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(income.name).font(.title2.bold())
+                    Text("Income • \(income.source.rawValue.capitalized)").foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text(fullDate(date)).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(currency(amount: income.amount)).font(Typography.amountFont(for: store.settings))
+                        .foregroundStyle(.green)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Type: Income").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Category: \(income.source.rawValue.capitalized)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                if let notes = income.notes, !notes.isEmpty {
+                    Divider()
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Notes").font(.headline)
+                            Text(notes).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                Divider()
+                HStack(spacing: 12) {
+                    Button("Edit") { editingIncome = income }
+                    Button(role: .destructive) {
+                        store.incomes.removeAll { $0.id == income.id }
+                        store.selectedIncomeID = nil
+                    } label: { Text("Delete") }
+                }
+            }
+            .padding()
+        }
+        .padding(.trailing)
+    }
+    
+    private func billDetail(_ bill: Bill) -> some View {
+        VStack(spacing: 0) {
+            if selectedSection == .overview {
+                if showCalendarDropdown {
+                    CalendarOverviewView(showHideControl: true, isVisible: true, onToggle: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            showCalendarDropdown.toggle()
+                        }
+                    })
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    Divider()
+                } else {
+                    HStack {
+                        Spacer()
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                showCalendarDropdown = true
+                            }
+                        } label: {
+                            Image(systemName: "eye")
+                                .font(.title3.weight(.bold))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 8)
+                    }
+                    ScrollView { billDetailContent(bill) }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            } else if selectedSection == .paidRecently {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        let date = store.selectedDay ?? bill.payments.max(by: { $0.date < $1.date })?.date ?? bill.nextDueDate
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(bill.name).font(.title2.bold())
+                            Text("Bill • \(bill.category.rawValue.capitalized)").foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text(fullDate(date)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(currency(amount: bill.amount)).font(Typography.amountFont(for: store.settings))
+                        }
+                        Text("Status: Paid").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Type: Bill").font(.subheadline).foregroundStyle(.secondary)
+                            Text("Category: \(bill.category.rawValue.capitalized)").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if let notes = bill.notes, !notes.isEmpty {
+                            Divider()
+                            GroupBox {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Notes").font(.headline)
+                                    Text(notes).foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        Divider()
+                        HStack(spacing: 12) {
+                            Button("Edit") { editingBill = bill }
+                            Button(role: .destructive) {
+                                store.bills.removeAll { $0.id == bill.id }
+                                store.selectedBillID = nil
+                            } label: { Text("Delete") }
+                        }
+                    }
+                    .padding()
+                }
+            } else {
+                ScrollView { billDetailContent(bill) }
+            }
+        }
+        .padding(.trailing)
     }
 }
 

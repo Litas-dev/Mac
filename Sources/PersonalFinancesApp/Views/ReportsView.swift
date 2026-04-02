@@ -218,7 +218,6 @@ struct ReportsView: View {
         let amtColWidth: CGFloat = 140
         return VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(slices.enumerated()), id: \.offset) { idx, s in
-                let isHover = false
                 VStack(spacing: 6) {
                     HStack(spacing: 12) {
                         HStack(spacing: 8) {

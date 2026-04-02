@@ -658,7 +658,7 @@ final class AppStore: ObservableObject {
         let key = "AppSettings"
         if let data = UserDefaults.standard.data(forKey: key),
            let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            var migrated = decoded.migratedBudgets().migratedBudgetCategories()
+            let migrated = decoded.migratedBudgets().migratedBudgetCategories()
             if migrated.dashboardStyle != decoded.dashboardStyle || migrated.monthlyBudgets != decoded.monthlyBudgets || migrated.budgetCategories != decoded.budgetCategories {
                 if let d = try? JSONEncoder().encode(migrated) {
                     UserDefaults.standard.set(d, forKey: key)
