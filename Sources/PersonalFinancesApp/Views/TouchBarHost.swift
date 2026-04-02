@@ -74,6 +74,15 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
             guard let self else { return }
             self.window?.makeFirstResponder(self)
         }
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("RestoreTouchBarResponder"), object: nil, queue: .main) { [weak self] _ in
+            guard let self = self, self.window != nil else { return }
+            self.window?.makeFirstResponder(self)
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     override func makeTouchBar() -> NSTouchBar? {

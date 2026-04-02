@@ -392,6 +392,7 @@ struct AICommandBarView: View {
         #if os(macOS)
         DispatchQueue.main.async {
             NSApp.keyWindow?.makeFirstResponder(nil)
+            NotificationCenter.default.post(name: NSNotification.Name("RestoreTouchBarResponder"), object: nil)
         }
         #endif
     }
