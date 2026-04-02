@@ -1,0 +1,41 @@
+name: PersonalFinances
+options:
+  minimumXcodeGenVersion: 2.38.0
+  createIntermediateGroups: true
+attributes:
+  ORGANIZATIONNAME: Personal
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.1.0"
+targets:
+  PersonalFinances:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/PersonalFinancesApp
+    resources:
+      - path: Sources/PersonalFinancesApp/Resources
+        optional: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.PersonalFinances
+        INFOPLIST_FILE: Sources/PersonalFinancesApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/PersonalFinancesApp/Entitlements.mac.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets:
+        - PersonalFinancesTests
+  PersonalFinancesTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/PersonalFinancesTests
+    dependencies:
+      - target: PersonalFinances

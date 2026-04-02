@@ -1,0 +1,16 @@
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# App bundle output (custom script)
+build/
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Logs
+*.log
