@@ -414,11 +414,17 @@ struct RootSplitView: View {
             EditBillView(bill: b) { updated in
                 store.update(updated)
             }
+            #if os(macOS)
+            .draggableWindow()
+            #endif
         }
         .popover(item: $editingIncome) { i in
             EditIncomeView(income: i) { updated in
                 store.update(updated)
             }
+            #if os(macOS)
+            .draggableWindow()
+            #endif
         }
         .onChange(of: editingBill) { _, newValue in
             if newValue != nil { aiResetToken = UUID() }
@@ -435,12 +441,18 @@ struct RootSplitView: View {
                     store.addIncome(income)
                     store.selectedIncomeDay = nil
                 }
+                #if os(macOS)
+                .draggableWindow()
+                #endif
             } else {
                 NewBillView { bill in
                     store.bills.append(bill)
                     store.selectedBillID = bill.id
                     store.selectedDay = nil
                 }
+                #if os(macOS)
+                .draggableWindow()
+                #endif
             }
         }
         .toolbar {
@@ -498,6 +510,9 @@ struct RootSplitView: View {
                 touchBarActionBill = nil
             }
             .environmentObject(store)
+            #if os(macOS)
+            .draggableWindow()
+            #endif
         }
     }
     
