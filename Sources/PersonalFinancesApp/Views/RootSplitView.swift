@@ -22,10 +22,18 @@ struct RootSplitView: View {
     @State private var showResetAlert: Bool = false
     @State private var aiResetToken: UUID = UUID()
     @State private var touchBarActionBill: Bill?
-    @State private var showTouchBarAlert = false
     @AppStorage("overviewDisplayMode") private var overviewDisplayMode: Int = 0
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding: Bool = false
     private enum DetailScreen { case info, history, stats }
+    
+    #if os(macOS)
+    private var touchBarBezelColor: NSColor {
+        guard let b = store.nextDueUnpaidBill else { return .systemGreen }
+        let cal = Calendar.current
+        if cal.startOfDay(for: b.nextDueDate) <= cal.startOfDay(for: Date()) { return .systemRed }
+        return .systemGreen
+    }
+    #endif
     
     private var shouldShowOnboarding: Bool {
         if didCompleteOnboarding { return false }
@@ -340,27 +348,25 @@ struct RootSplitView: View {
         .onChange(of: store.selectedIncome) { _ in
             showIncomeCalendarDropdown = false
         }
-        .touchBar {
-            if let b = store.nextDueUnpaidBill {
-                Button {
-                    // Update state variables to select and show the bill
+        #if os(macOS)
+        .background(
+            TouchBarHost(
+                title: store.nextDueUnpaidBill?.name ?? "You are on track this month",
+                isEnabled: store.nextDueUnpaidBill != nil,
+                bezelColor: touchBarBezelColor,
+                titleColor: .white,
+                onTap: {
+                    guard let b = store.nextDueUnpaidBill else { return }
                     selectedSection = .overview
                     store.selectedBillID = b.id
                     detailScreen = .info
-                    
-                    // Assign bill for alert and trigger the alert immediately
                     touchBarActionBill = b
-                    DispatchQueue.main.async {
-                        showTouchBarAlert = true
-                    }
-                } label: {
-                    Image(systemName: "bell.fill")
-                    Text("Due: \(b.name)")
                 }
-            } else {
-                Text("No bills due")
-            }
-        }
+            )
+            .frame(width: 1, height: 1)
+            .opacity(0.001)
+        )
+        #endif
         .onAppear {
             if selectedSection == .overview {
                 store.selectedBillID = nil
@@ -474,19 +480,11 @@ struct RootSplitView: View {
                 .environmentObject(store)
                 .interactiveDismissDisabled()
         }
-        .alert(
-            "Manage Bill",
-            isPresented: $showTouchBarAlert,
-            presenting: touchBarActionBill
-        ) { bill in
-            Button("Log Payment") { store.logPayment(for: bill.id) }
-            Button("Snooze +1 Day") { store.snooze(for: bill.id, preset: .day1) }
-            Button("Snooze +3 Days") { store.snooze(for: bill.id, preset: .day3) }
-            Button("Snooze Next Week") { store.snooze(for: bill.id, preset: .nextWeek) }
-            Button("Edit Details…") { editingBill = bill }
-            Button("Cancel", role: .cancel) { }
-        } message: { bill in
-            Text("\(bill.name) is due \(fullDate(bill.nextDueDate)).")
+        .sheet(item: $touchBarActionBill) { bill in
+            TouchBarBillActionsView(bill: bill) {
+                touchBarActionBill = nil
+            }
+            .environmentObject(store)
         }
     }
     
@@ -826,6 +824,59 @@ struct RootSplitView: View {
         var updated = bill
         updated.attachments.removeAll(where: { $0.id == attachment.id })
         store.update(updated)
+    }
+}
+
+private struct TouchBarBillActionsView: View {
+    @EnvironmentObject private var store: AppStore
+    let bill: Bill
+    let onClose: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(bill.name)
+                    .font(.title2.bold())
+                Text("Due \(bill.nextDueDate.formatted(date: .abbreviated, time: .omitted))")
+                    .foregroundStyle(.secondary)
+            }
+            
+            HStack(spacing: 10) {
+                Button("Log Payment") {
+                    store.logPayment(for: bill.id)
+                    onClose()
+                }
+                Button("Edit…") {
+                    store.selectedBillID = bill.id
+                    onClose()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            
+            HStack(spacing: 10) {
+                Button("Snooze +1 Day") {
+                    store.snooze(for: bill.id, preset: .day1)
+                    onClose()
+                }
+                Button("Snooze +3 Days") {
+                    store.snooze(for: bill.id, preset: .day3)
+                    onClose()
+                }
+                Button("Next Week") {
+                    store.snooze(for: bill.id, preset: .nextWeek)
+                    onClose()
+                }
+            }
+            .buttonStyle(.bordered)
+            
+            HStack {
+                Spacer()
+                Button("Close") { onClose() }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .frame(width: 420)
     }
 }
 

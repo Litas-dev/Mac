@@ -32,7 +32,7 @@ struct PersonalFinancesApp: App {
                 }
                 Divider()
             } else {
-                Text("No bills due")
+                Text("You are on track this month")
                 Divider()
             }
             Button("Open Personal Finances") {
