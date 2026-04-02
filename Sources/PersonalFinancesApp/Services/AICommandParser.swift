@@ -459,6 +459,7 @@ extension AppStore {
                     b.recurrence = .once
                     b.nextDueDate = due
                     b.notes = billName.capitalized
+                    b.hiddenUntilEdited = false
                     bills[idx] = b
                     return "Scheduled \(b.name) on \(dateStr)"
                 } else {
@@ -481,6 +482,7 @@ extension AppStore {
                     b.recurrence = .monthly
                     b.nextDueDate = due
                     b.notes = billName.capitalized
+                    b.hiddenUntilEdited = false
                     bills[idx] = b
                     return "Scheduled \(b.name) monthly on day \(day)"
                 } else {
@@ -507,12 +509,10 @@ extension AppStore {
                 let amt = DecimalAmount(currencyCode: settings.displayCurrencyCode, value: amtVal)
                 let split = Self.splitShortName(from: billName)
                 let cat = AICommandParser.categoryForName(split.short)
-                let bill = Bill(name: split.short, amount: amt, category: cat, customCategoryName: nil, recurrence: .once, nextDueDate: Date(), notes: split.note ?? billName.capitalized, payments: [], paidAutomatically: false, hiddenUntilEdited: false)
+                let due = Calendar.current.startOfDay(for: Date())
+                let bill = Bill(name: split.short, amount: amt, category: cat, customCategoryName: nil, recurrence: .once, nextDueDate: due, notes: split.note ?? billName.capitalized, payments: [], paidAutomatically: false, hiddenUntilEdited: false)
                 bills.append(bill)
-                if let idx = bills.firstIndex(where: { $0.id == bill.id }) {
-                    bills[idx].markPaid(on: Date(), amount: amt)
-                }
-                return "Paid \(split.short) \(settings.displayCurrencyCode) \(amtVal)"
+                return "Added \(split.short) due today"
             }
         case .send_invoice:
             return "Preview only"

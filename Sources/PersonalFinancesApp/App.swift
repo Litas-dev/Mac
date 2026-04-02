@@ -448,13 +448,11 @@ final class AppStore: ObservableObject {
     func logPayment(for id: UUID, on date: Date = Date()) {
         guard let idx = bills.firstIndex(where: { $0.id == id }) else { return }
         bills[idx].markPaid(on: date)
-        bills[idx].hiddenUntilEdited = true
         selectedBillID = nextDueBillID(excluding: id)
     }
     func logPayment(for id: UUID, on date: Date = Date(), customAmount: DecimalAmount) {
         guard let idx = bills.firstIndex(where: { $0.id == id }) else { return }
         bills[idx].markPaid(on: date, amount: customAmount)
-        bills[idx].hiddenUntilEdited = true
         selectedBillID = nextDueBillID(excluding: id)
     }
 
@@ -515,14 +513,12 @@ final class AppStore: ObservableObject {
                 if bills[i].isPaidFor(date: bills[i].nextDueDate) { continue }
                 if bills[i].recurrence == .once {
                     bills[i].markPaid(on: bills[i].nextDueDate)
-                    bills[i].hiddenUntilEdited = true
                     continue
                 }
                 var guardrail = 0
                 while cal.startOfDay(for: bills[i].nextDueDate) <= upTo && !bills[i].isPaidFor(date: bills[i].nextDueDate) {
                     let before = bills[i].nextDueDate
                     bills[i].markPaid(on: bills[i].nextDueDate)
-                    bills[i].hiddenUntilEdited = true
                     if bills[i].nextDueDate == before { break }
                     guardrail += 1
                     if guardrail > 400 { break }
