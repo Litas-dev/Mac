@@ -8,8 +8,11 @@ final class NotificationManager: NSObject {
     static let shared = NotificationManager()
     private override init() {
         super.init()
-        UNUserNotificationCenter.current().delegate = self
-        registerCategories()
+        if Self.isRunningInAppBundle {
+            let center = UNUserNotificationCenter.current()
+            center.delegate = self
+            registerCategories()
+        }
     }
 
     enum Action: String {
@@ -18,20 +21,25 @@ final class NotificationManager: NSObject {
     }
 
     func requestAuthorization(_ completion: @escaping (Bool) -> Void) {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+        guard let center = self.center() else {
+            completion(false)
+            return
+        }
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             completion(granted)
         }
     }
 
     func registerCategories() {
+        guard let center = self.center() else { return }
         let log = UNNotificationAction(identifier: Action.logPayment.rawValue, title: "Log Payment", options: [])
         let skip = UNNotificationAction(identifier: Action.skip.rawValue, title: "Skip", options: [])
         let category = UNNotificationCategory(identifier: "BILL_DUE", actions: [log, skip], intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        center.setNotificationCategories([category])
     }
 
     func scheduleAll(for bills: [Bill], settings: AppSettings? = nil) {
-        let center = UNUserNotificationCenter.current()
+        guard let center = self.center() else { return }
         center.removeAllPendingNotificationRequests()
         
         // Always update the badge if possible
@@ -45,7 +53,7 @@ final class NotificationManager: NSObject {
     }
 
     func schedule(for bill: Bill, settings: AppSettings? = nil) {
-        let center = UNUserNotificationCenter.current()
+        guard let center = self.center() else { return }
         let content = UNMutableNotificationContent()
         content.title = "🔔  \(bill.name)"
         content.body = "Due \(format(date: bill.nextDueDate)) — \(format(amount: bill.amount, settings: settings))"
@@ -84,6 +92,7 @@ final class NotificationManager: NSObject {
     }
 
     func sendTest() {
+        guard let center = self.center() else { return }
         let content = UNMutableNotificationContent()
         content.title = "Test Bill Reminder"
         content.body = "This is how your due notifications will look."
@@ -91,7 +100,7 @@ final class NotificationManager: NSObject {
         content.categoryIdentifier = "BILL_DUE"
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
         let request = UNNotificationRequest(identifier: "TEST_BILL_DUE", content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request)
+        center.add(request)
     }
 
     func postBootstrapSchedule() {
@@ -138,10 +147,23 @@ final class NotificationManager: NSObject {
             count = 0
         }
         #if os(macOS)
-        DispatchQueue.main.async {
-            NSApplication.shared.dockTile.badgeLabel = (count > 0) ? "\(count)" : nil
+        if Self.isRunningInAppBundle {
+            DispatchQueue.main.async {
+                NSApplication.shared.dockTile.badgeLabel = (count > 0) ? "\(count)" : nil
+            }
         }
         #endif
+    }
+    
+    private func center() -> UNUserNotificationCenter? {
+        guard Self.isRunningInAppBundle else { return nil }
+        return UNUserNotificationCenter.current()
+    }
+    
+    private static var isRunningInAppBundle: Bool {
+        let url = Bundle.main.bundleURL
+        if url.pathExtension == "app" { return true }
+        return url.path.contains(".app/")
     }
 }
 
