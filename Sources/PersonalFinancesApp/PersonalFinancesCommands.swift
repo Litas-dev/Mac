@@ -13,11 +13,7 @@ struct PersonalFinancesCommands: Commands {
     }
     
     var body: some Commands {
-        CommandGroup(after: .help) {
-            Button("Personal Finances Help") {
-                openWindow(id: "help")
-            }
-            Divider()
+        CommandGroup(replacing: .appInfo) {
             Button("About Personal Finances") {
                 NSApp.orderFrontStandardAboutPanel(options: [
                     .applicationVersion: aboutVersionString
@@ -25,6 +21,10 @@ struct PersonalFinancesCommands: Commands {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+        CommandGroup(after: .help) {
+            Button("Help…") {
+                openWindow(id: "help")
+            }
+        }
     }
 }
-
