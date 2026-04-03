@@ -266,6 +266,7 @@ struct AICommandBarView: View {
         }
     }
     
+    @MainActor
     private func runParse() async {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -319,6 +320,7 @@ struct AICommandBarView: View {
         refreshFavorites()
     }
     
+    @MainActor
     private func showError(_ msg: String) {
         if suppressErrorsUntilInputChange, lastErrorMessage == msg {
             return
@@ -358,6 +360,7 @@ struct AICommandBarView: View {
             return "Unknown command"
         }
     }
+    @MainActor
     private func confirm() {
         guard let cmd = parsed else { return }
         switch cmd.type {
@@ -378,6 +381,7 @@ struct AICommandBarView: View {
         }
     }
     
+    @MainActor
     private func completeSuccess(message: String, cmd: AIParsedCommand, fallbackInput: String) {
         preview = nil
         parseError = nil
@@ -396,6 +400,7 @@ struct AICommandBarView: View {
         }
     }
     
+    @MainActor
     private func clearAndDismiss() {
         isLoading = false
         preview = nil
@@ -410,6 +415,7 @@ struct AICommandBarView: View {
         resignInputFocus()
     }
     
+    @MainActor
     private func resignInputFocus() {
         inputFocused = false
         #if os(macOS)
@@ -419,6 +425,7 @@ struct AICommandBarView: View {
         }
         #endif
     }
+    @MainActor
     private func refreshFavorites() {
         let rec = CommandMemoryStore.shared.recents(limit: 12)
         favorites = rec.filter { $0.favorite }
