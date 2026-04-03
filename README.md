@@ -1,9 +1,9 @@
-# Personal Finances (macOS)
+# Kivana (macOS)
 
-Personal Finances is a native macOS SwiftUI app for tracking bills, incomes, accounts, goals, debts, and basic reporting.
+Kivana is a native macOS SwiftUI app for tracking bills, incomes, accounts, goals, debts, and basic reporting.
 
 ## Version
-- Current: 0.4.10 (pre-alpha)
+- Current: 0.5.0 (pre-alpha)
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 - Build number: increments over time (used as CFBundleVersion)
 

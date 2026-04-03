@@ -5,7 +5,7 @@ struct HelpView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Personal Finances Help")
+                    Text("Kivana Help")
                         .font(.title2.bold())
                     Text("Quick guide to the main screens and workflows.")
                         .foregroundStyle(.secondary)
@@ -77,4 +77,3 @@ struct HelpView: View {
         .frame(minWidth: 560, minHeight: 520)
     }
 }
-

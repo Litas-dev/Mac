@@ -8,9 +8,7 @@ final class BillAttachmentStore {
     private init() {}
     
     func attachmentsRootURL() throws -> URL {
-        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let root = appSupport
-            .appendingPathComponent("PersonalFinances", isDirectory: true)
+        let root = PersistencePaths.localBaseDirectory()
             .appendingPathComponent("Attachments", isDirectory: true)
         if !fm.fileExists(atPath: root.path) {
             try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -20,7 +18,17 @@ final class BillAttachmentStore {
     
     func resolve(_ attachment: BillAttachment) throws -> URL {
         let root = try attachmentsRootURL()
-        return root.appendingPathComponent(attachment.storedRelativePath, isDirectory: false)
+        let url = root.appendingPathComponent(attachment.storedRelativePath, isDirectory: false)
+        if fm.fileExists(atPath: url.path) {
+            return url
+        }
+        if let legacyRoot = legacyAttachmentsRootURL() {
+            let legacyURL = legacyRoot.appendingPathComponent(attachment.storedRelativePath, isDirectory: false)
+            if fm.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+        }
+        return url
     }
     
     func save(sourceURL: URL, billId: UUID, displayName: String? = nil) throws -> BillAttachment {
@@ -71,5 +79,14 @@ final class BillAttachmentStore {
         } catch {
             return
         }
+    }
+    
+    private func legacyAttachmentsRootURL() -> URL? {
+        let root = PersistencePaths.legacyLocalBaseDirectory()
+            .appendingPathComponent("Attachments", isDirectory: true)
+        if fm.fileExists(atPath: root.path) {
+            return root
+        }
+        return nil
     }
 }

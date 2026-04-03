@@ -310,7 +310,7 @@ struct PDFExportView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "wallet.pass")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("Personal Finances")
+                        Text("Kivana")
                             .font(.system(size: 13, weight: .semibold))
                             .tracking(0.2)
                     }
@@ -455,7 +455,7 @@ struct PDFExportView: View {
 
     private func footer() -> some View {
         HStack {
-            Text("Personal Finances • Monthly Summary")
+            Text("Kivana • Monthly Summary")
                 .font(.system(size: 9))
                 .foregroundStyle(.gray)
             Spacer()

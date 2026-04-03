@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct PersonalFinancesCommands: Commands {
+struct KivanaCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     
     var body: some Commands {

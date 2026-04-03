@@ -242,8 +242,21 @@ private final class CalendarSyncMappingStore {
     
     func load() -> [String: String] {
         queue.sync {
-            guard let data = try? Data(contentsOf: fileURL()) else { return [:] }
-            return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+            let url = fileURL()
+            let data: Data?
+            if let d = try? Data(contentsOf: url) {
+                data = d
+            } else if let d = try? Data(contentsOf: legacyFileURL()) {
+                data = d
+            } else {
+                data = nil
+            }
+            guard let data else { return [:] }
+            let decoded = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+            if !decoded.isEmpty {
+                save(decoded)
+            }
+            return decoded
         }
     }
     
@@ -256,9 +269,13 @@ private final class CalendarSyncMappingStore {
     
     private func fileURL() -> URL {
         let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appendingPathComponent("PersonalFinances", isDirectory: true)
+        let dir = PersistencePaths.localBaseDirectory()
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("CalendarSync.json")
+    }
+    
+    private func legacyFileURL() -> URL {
+        PersistencePaths.legacyLocalBaseDirectory()
+            .appendingPathComponent("CalendarSync.json")
     }
 }

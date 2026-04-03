@@ -77,17 +77,30 @@ final class CommandMemoryStore {
     
     private func fileURL() -> URL {
         let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appendingPathComponent("PersonalFinances", isDirectory: true)
+        let dir = PersistencePaths.localBaseDirectory()
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("CommandMemory.json")
     }
     
+    private func legacyFileURL() -> URL {
+        PersistencePaths.legacyLocalBaseDirectory()
+            .appendingPathComponent("CommandMemory.json")
+    }
+    
     private func load() {
         let url = fileURL()
-        guard let data = try? Data(contentsOf: url) else { return }
+        let data: Data?
+        if let d = try? Data(contentsOf: url) {
+            data = d
+        } else if let d = try? Data(contentsOf: legacyFileURL()) {
+            data = d
+        } else {
+            data = nil
+        }
+        guard let data else { return }
         if let decoded = try? JSONDecoder().decode([CommandMemoryEntry].self, from: data) {
             entries = decoded
+            save()
             return
         }
         let df = ISO8601DateFormatter()

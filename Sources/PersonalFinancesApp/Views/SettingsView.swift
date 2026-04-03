@@ -789,7 +789,7 @@ struct SettingsView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "pfbackup") ?? UTType.data]
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd_HH-mm"
-        panel.nameFieldStringValue = "PersonalFinances_Backup_\(df.string(from: Date())).pfbackup"
+        panel.nameFieldStringValue = "Kivana_Backup_\(df.string(from: Date())).pfbackup"
         if panel.runModal() == .OK, let url = panel.url {
             let backup = DataBackupV2(
                 version: 2,

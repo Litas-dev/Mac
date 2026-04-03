@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "312300F1FFCECB54D8BAB5A1"
-               BuildableName = "PersonalFinances.app"
+         BuildableName = "Kivana.app"
                BlueprintName = "PersonalFinances"
                ReferencedContainer = "container:PersonalFinances.xcodeproj">
             </BuildableReference>

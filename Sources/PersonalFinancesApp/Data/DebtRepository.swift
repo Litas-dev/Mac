@@ -23,9 +23,7 @@ final class FileDebtRepository: DebtRepository {
     init(fileURL: URL? = nil) {
         if let fileURL { self.url = fileURL }
         else {
-            let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.url = appSupport
-                .appendingPathComponent("PersonalFinances", isDirectory: true)
+            self.url = PersistencePaths.localBaseDirectory()
                 .appendingPathComponent("debts.json", isDirectory: false)
         }
     }

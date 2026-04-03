@@ -43,7 +43,7 @@
 		8605711D8AAF8D985261698E /* BillsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillsListView.swift; sourceTree = "<group>"; };
 		8C0F881710E65B951D2896DA /* Bill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bill.swift; sourceTree = "<group>"; };
 		B0D245CDEC9648409F12142C /* BillRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillRepository.swift; sourceTree = "<group>"; };
-		BD9BA7222DFEB44E8E35EBFA /* PersonalFinances.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PersonalFinances.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD9BA7222DFEB44E8E35EBFA /* Kivana.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kivana.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ECA1E4199EF0F756CC432EA8 /* Payment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Payment.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -158,7 +158,7 @@
 			packageProductDependencies = (
 			);
 			productName = PersonalFinances;
-			productReference = BD9BA7222DFEB44E8E35EBFA /* PersonalFinances.app */;
+			productReference = BD9BA7222DFEB44E8E35EBFA /* Kivana.app */;
 			productType = "com.apple.product-type.application";
 		};
 		33E45779065C35AF0CB1F857 /* PersonalFinancesTests */ = {
@@ -276,7 +276,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				EXECUTABLE_NAME = Kivana;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.PersonalFinances;
+				PRODUCT_NAME = Kivana;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -350,7 +352,7 @@
 					"@loader_path/../Frameworks",
 				);
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PersonalFinances.app/Contents/MacOS/PersonalFinances";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kivana.app/Contents/MacOS/Kivana";
 			};
 			name = Release;
 		};
@@ -446,7 +448,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				EXECUTABLE_NAME = Kivana;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.PersonalFinances;
+				PRODUCT_NAME = Kivana;
 				SDKROOT = macosx;
 			};
 			name = Debug;

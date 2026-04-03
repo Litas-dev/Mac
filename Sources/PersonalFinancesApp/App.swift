@@ -1,11 +1,11 @@
 import SwiftUI
 
 @main
-struct PersonalFinancesApp: App {
+struct KivanaApp: App {
     @State private var store = AppStore.makePreview()
 
     var body: some Scene {
-        WindowGroup("Personal Finances") {
+        WindowGroup("Kivana") {
             RootSplitView()
                 .environmentObject(store)
                 .dynamicTypeSize(store.dynamicTypeSize)
@@ -18,7 +18,7 @@ struct PersonalFinancesApp: App {
         }
         .defaultSize(width: 1100, height: 700)
         .commands {
-            PersonalFinancesCommands()
+            KivanaCommands()
         }
 
         MenuBarExtra {
@@ -38,7 +38,7 @@ struct PersonalFinancesApp: App {
                 Text("You are on track this month")
                 Divider()
             }
-            Button("Open Personal Finances") {
+            Button("Open Kivana") {
                 NSApp.activate(ignoringOtherApps: true)
                 for window in NSApp.windows {
                     window.makeKeyAndOrderFront(nil)
@@ -371,6 +371,7 @@ final class AppStore: ObservableObject {
 
     static func makePreview() -> AppStore {
         let settings = loadSettings()
+        PersistencePaths.migrateIfNeeded(preferICloud: settings.iCloudEnabled)
         let billRepo = FileBillRepository(fileURL: PersistencePaths.fileURL("bills.json", preferICloud: settings.iCloudEnabled))
         let bills = billRepo.loadBills()
         let incomeRepo = FileIncomeRepository(fileURL: PersistencePaths.fileURL("incomes.json", preferICloud: settings.iCloudEnabled))

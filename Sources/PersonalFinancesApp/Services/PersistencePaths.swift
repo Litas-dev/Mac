@@ -1,6 +1,9 @@
 import Foundation
 
 enum PersistencePaths {
+    static let appFolderName = "Kivana"
+    static let legacyAppFolderName = "PersonalFinances"
+    
     static func isICloudAvailable() -> Bool {
         FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
     }
@@ -8,14 +11,27 @@ enum PersistencePaths {
     static func localBaseDirectory() -> URL {
         let fm = FileManager.default
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return appSupport.appendingPathComponent("PersonalFinances", isDirectory: true)
+        return appSupport.appendingPathComponent(appFolderName, isDirectory: true)
+    }
+    
+    static func legacyLocalBaseDirectory() -> URL {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return appSupport.appendingPathComponent(legacyAppFolderName, isDirectory: true)
     }
     
     static func iCloudBaseDirectory() -> URL? {
         guard let container = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
         return container
             .appendingPathComponent("Documents", isDirectory: true)
-            .appendingPathComponent("PersonalFinances", isDirectory: true)
+            .appendingPathComponent(appFolderName, isDirectory: true)
+    }
+    
+    static func legacyICloudBaseDirectory() -> URL? {
+        guard let container = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
+        return container
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent(legacyAppFolderName, isDirectory: true)
     }
     
     static func baseDirectory(preferICloud: Bool) -> URL {
@@ -23,6 +39,39 @@ enum PersistencePaths {
             return cloud
         }
         return localBaseDirectory()
+    }
+    
+    static func migrateIfNeeded(preferICloud: Bool) {
+        let fm = FileManager.default
+        
+        if preferICloud, let target = iCloudBaseDirectory() {
+            let source = legacyICloudBaseDirectory()
+            if let source, shouldMigrate(source: source, target: target, fm: fm) {
+                _ = try? PersistenceMigration.migrateAll(from: source, to: target)
+            }
+            return
+        }
+        
+        let target = localBaseDirectory()
+        let source = legacyLocalBaseDirectory()
+        if shouldMigrate(source: source, target: target, fm: fm) {
+            _ = try? PersistenceMigration.migrateAll(from: source, to: target)
+        }
+    }
+    
+    private static func shouldMigrate(source: URL, target: URL, fm: FileManager) -> Bool {
+        if hasAnyData(at: target, fm: fm) { return false }
+        if !hasAnyData(at: source, fm: fm) { return false }
+        return true
+    }
+    
+    private static func hasAnyData(at base: URL, fm: FileManager) -> Bool {
+        for name in dataFiles {
+            if fm.fileExists(atPath: base.appendingPathComponent(name, isDirectory: false).path) {
+                return true
+            }
+        }
+        return false
     }
     
     static func fileURL(_ name: String, preferICloud: Bool) -> URL {
@@ -75,4 +124,3 @@ enum PersistenceMigration {
         return df.string(from: Date()).replacingOccurrences(of: ":", with: "-")
     }
 }
-

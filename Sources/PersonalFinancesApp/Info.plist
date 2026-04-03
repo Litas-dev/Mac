@@ -3,21 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>PersonalFinances</string>
+	<string>Kivana</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleExecutable</key>
-	<string>PersonalFinances</string>
+	<string>Kivana</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleDisplayName</key>
-	<string></string>
+	<string>Kivana</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.personal.PersonalFinances</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.10</string>
+	<string>0.5.0</string>
 	<key>CFBundleVersion</key>
-	<string>32</string>
+	<string>33</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.finance</string>
 	<key>NSAppTransportSecurity</key>
@@ -26,10 +26,10 @@
 		<false/>
 	</dict>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Personal Finances uses your Calendar to show upcoming bill due dates.</string>
+	<string>Kivana uses your Calendar to show upcoming bill due dates.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Personal Finances uses your Calendar to show upcoming bill due dates.</string>
+	<string>Kivana uses your Calendar to show upcoming bill due dates.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
-	<string>Personal Finances uses your Calendar to show upcoming bill due dates.</string>
+	<string>Kivana uses your Calendar to show upcoming bill due dates.</string>
 </dict>
 </plist>

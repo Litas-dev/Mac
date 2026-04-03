@@ -384,7 +384,7 @@ struct HistoryListView: View {
         #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "PersonalFinances_Export_\(df.string(from: Date())).csv"
+        panel.nameFieldStringValue = "Kivana_Export_\(df.string(from: Date())).csv"
         if panel.runModal() == .OK, let url = panel.url {
             try? csv.write(to: url, atomically: true, encoding: .utf8)
         }

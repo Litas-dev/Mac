@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "personal finances",
+    name: "Kivana",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "PersonalFinances", targets: ["PersonalFinancesApp"])
+        .executable(name: "Kivana", targets: ["PersonalFinancesApp"])
     ],
     targets: [
         .executableTarget(

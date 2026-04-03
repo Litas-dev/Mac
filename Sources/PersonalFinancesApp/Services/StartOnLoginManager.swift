@@ -31,7 +31,7 @@ final class StartOnLoginManager {
     
     private func installLaunchAgent() throws {
         try FileManager.default.createDirectory(at: launchAgentsURL(), withIntermediateDirectories: true)
-        let execPath = Bundle.main.bundlePath + "/Contents/MacOS/PersonalFinances"
+        let execPath = Bundle.main.executableURL?.path ?? (Bundle.main.bundlePath + "/Contents/MacOS/" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String ?? "Kivana"))
         let dict: [String: Any] = [
             "Label": label,
             "RunAtLoad": true,
