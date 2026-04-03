@@ -283,9 +283,15 @@ final class AppStore: ObservableObject {
         didSet {
             if suspendPersistence { return }
             saveSettings()
-            StartOnLoginManager.shared.apply(enabled: settings.startOnLogin)
-            CalendarSyncManager.shared.scheduleSync(bills: bills, settings: settings)
-            objectWillChange.send()
+            if oldValue.startOnLogin != settings.startOnLogin {
+                StartOnLoginManager.shared.apply(enabled: settings.startOnLogin)
+            }
+            if oldValue.calendarSyncEnabled != settings.calendarSyncEnabled ||
+                oldValue.calendarSyncCalendarName != settings.calendarSyncCalendarName ||
+                oldValue.calendarSyncMonthsAhead != settings.calendarSyncMonthsAhead ||
+                oldValue.calendarSyncLeadDays != settings.calendarSyncLeadDays {
+                CalendarSyncManager.shared.scheduleSync(bills: bills, settings: settings)
+            }
         }
     }
     @Published var lastPersistenceError: String? = nil

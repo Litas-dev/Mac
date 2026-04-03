@@ -7,16 +7,18 @@ final class StartOnLoginManager {
     private let label = "com.personalfinances.startonlogin"
     
     func apply(enabled: Bool) {
-        do {
-            if enabled {
-                try installLaunchAgent()
-                try loadAgent()
-            } else {
-                try unloadAgent()
-                try removeLaunchAgent()
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                if enabled {
+                    try self.installLaunchAgent()
+                    try self.loadAgent()
+                } else {
+                    try self.unloadAgent()
+                    try self.removeLaunchAgent()
+                }
+            } catch {
+                return
             }
-        } catch {
-            // Silent fallback; in a real app we might surface this in Settings
         }
     }
     
