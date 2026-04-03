@@ -1020,6 +1020,7 @@ final class AppStore: ObservableObject {
         }
         sampleIndex = SampleIndex()
         saveSampleIndex()
+        NotificationManager.shared.removeAll(clearBadge: true)
         NotificationManager.shared.scheduleAll(for: bills, settings: settings)
         NotificationManager.shared.updateDockBadge(for: bills, settings: settings)
     }
@@ -1042,6 +1043,7 @@ final class AppStore: ObservableObject {
         selectedIncomeDay = nil
         sampleIndex = SampleIndex()
         saveSampleIndex()
+        NotificationManager.shared.removeAll(clearBadge: true)
         NotificationManager.shared.scheduleAll(for: bills, settings: settings)
         NotificationManager.shared.updateDockBadge(for: bills, settings: settings)
     }

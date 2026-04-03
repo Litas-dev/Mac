@@ -26,8 +26,31 @@ if [ -f "$PROJECT_DIR/Package.swift" ]; then
     if [ ! -f "$X86_BIN" ]; then X86_BIN="$X86_BIN_DIR/PersonalFinancesApp"; fi
     UNIVERSAL_BIN="$PROJECT_DIR/.build/debug/$APP_NAME"
     mkdir -p "$(dirname "$UNIVERSAL_BIN")"
-    lipo -create "$ARM_BIN" "$X86_BIN" -output "$UNIVERSAL_BIN"
-    BIN="$UNIVERSAL_BIN"
+    ARM_ARCHS="$(lipo -info "$ARM_BIN" 2>/dev/null | sed -E 's/.*are: //; s/.*architecture: //' | xargs || true)"
+    X86_ARCHS="$(lipo -info "$X86_BIN" 2>/dev/null | sed -E 's/.*are: //; s/.*architecture: //' | xargs || true)"
+    if [[ "$ARM_ARCHS" == *"arm64"* && "$ARM_ARCHS" == *"x86_64"* ]]; then
+      BIN="$ARM_BIN"
+    elif [[ "$X86_ARCHS" == *"arm64"* && "$X86_ARCHS" == *"x86_64"* ]]; then
+      BIN="$X86_BIN"
+    elif [ -n "$ARM_ARCHS" ] && [ -n "$X86_ARCHS" ] && [ "$ARM_ARCHS" != "$X86_ARCHS" ]; then
+      ARM_INPUT="$ARM_BIN"
+      X86_INPUT="$X86_BIN"
+      TMP_DIR="$PROJECT_DIR/.build/tmp-universal"
+      mkdir -p "$TMP_DIR"
+      if [[ "$ARM_ARCHS" == *" "* ]]; then
+        ARM_INPUT="$TMP_DIR/$APP_NAME-arm64"
+        lipo -thin arm64 "$ARM_BIN" -output "$ARM_INPUT"
+      fi
+      if [[ "$X86_ARCHS" == *" "* ]]; then
+        X86_INPUT="$TMP_DIR/$APP_NAME-x86_64"
+        lipo -thin x86_64 "$X86_BIN" -output "$X86_INPUT"
+      fi
+      lipo -create "$ARM_INPUT" "$X86_INPUT" -output "$UNIVERSAL_BIN"
+      BIN="$UNIVERSAL_BIN"
+    else
+      echo "› Universal build not available (falling back to single-arch: $ARM_ARCHS)"
+      BIN="$ARM_BIN"
+    fi
   else
     swift build -c debug
     BIN="$PROJECT_DIR/.build/debug/$APP_NAME"

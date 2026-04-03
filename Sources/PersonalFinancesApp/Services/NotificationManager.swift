@@ -51,6 +51,15 @@ final class NotificationManager: NSObject {
             schedule(for: bill, settings: settings)
         }
     }
+    
+    func removeAll(clearBadge: Bool = true) {
+        guard let center = self.center() else { return }
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        if clearBadge {
+            updateDockBadge(for: [], settings: nil)
+        }
+    }
 
     func schedule(for bill: Bill, settings: AppSettings? = nil) {
         guard let center = self.center() else { return }
