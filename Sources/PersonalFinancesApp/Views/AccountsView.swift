@@ -293,7 +293,9 @@ struct AccountsDetailView: View {
 
 private struct EditAccountView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: AppStore
     @State private var account: Account
+    @State private var setCurrentBalanceText: String = ""
     let onSave: (Account) -> Void
     
     init(account: Account, onSave: @escaping (Account) -> Void) {
@@ -315,6 +317,22 @@ private struct EditAccountView: View {
                 }
                 TextField("Currency", text: $account.currencyCode)
                 TextField("Opening Balance", value: $account.openingBalance, format: .number)
+                LabeledContent("Current Balance") {
+                    Text(currency(previewBalance(), code: account.currencyCode))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Set Current Balance") {
+                    HStack(spacing: 8) {
+                        TextField("0", text: $setCurrentBalanceText)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 140)
+                        Button("Apply") {
+                            applySetCurrentBalance()
+                        }
+                        .disabled(parseDecimal(setCurrentBalanceText) == nil)
+                    }
+                }
                 TextField("Institution", text: Binding(get: { account.institution ?? "" }, set: { account.institution = $0.isEmpty ? nil : $0 }))
                 TextField("Notes", text: Binding(get: { account.notes ?? "" }, set: { account.notes = $0.isEmpty ? nil : $0 }))
             }
@@ -333,5 +351,43 @@ private struct EditAccountView: View {
         }
         .padding()
         .frame(minWidth: 420)
+    }
+    
+    private func previewBalance() -> Decimal {
+        var total = account.openingBalance
+        for t in store.transactions {
+            switch t.kind {
+            case .income:
+                if t.accountId == account.id { total += t.amount.value }
+            case .expense:
+                if t.accountId == account.id { total -= t.amount.value }
+            case .transfer:
+                if t.accountId == account.id { total -= t.amount.value }
+                if t.toAccountId == account.id { total += t.amount.value }
+            }
+        }
+        return total
+    }
+    
+    private func applySetCurrentBalance() {
+        guard let target = parseDecimal(setCurrentBalanceText) else { return }
+        let current = previewBalance()
+        account.openingBalance += (target - current)
+        setCurrentBalanceText = ""
+    }
+    
+    private func parseDecimal(_ text: String) -> Decimal? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if let d = Decimal(string: trimmed, locale: Locale.current) { return d }
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        return Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX"))
+    }
+    
+    private func currency(_ decimal: Decimal, code: String) -> String {
+        let nf = NumberFormatter()
+        nf.numberStyle = .currency
+        nf.currencyCode = code
+        return nf.string(for: decimal as NSDecimalNumber) ?? "\(decimal)"
     }
 }

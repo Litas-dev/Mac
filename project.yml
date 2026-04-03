@@ -11,8 +11,8 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""
-    CURRENT_PROJECT_VERSION: "30"
-    MARKETING_VERSION: "0.4.8"
+    CURRENT_PROJECT_VERSION: "31"
+    MARKETING_VERSION: "0.4.9"
 targets:
   PersonalFinances:
     type: application

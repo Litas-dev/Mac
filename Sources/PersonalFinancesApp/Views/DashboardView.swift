@@ -642,6 +642,7 @@ struct DashboardView: View {
     private func kpis() -> (income: Decimal, bills: Decimal, net: Decimal, nextBillText: String, nextAccent: Color) {
         let cal = Calendar.current
         let now = Date()
+        let startingBalance = store.computedAvailableBalance
         let income: Decimal = store.incomes.reduce(0) { acc, inc in
             let received = inc.receipts
                 .filter { cal.isDate($0.date, equalTo: now, toGranularity: .month) }
@@ -656,7 +657,7 @@ struct DashboardView: View {
             cal.isDate($0.nextDueDate, equalTo: now, toGranularity: .month) && !$0.isPaidFor(date: $0.nextDueDate)
         }.reduce(Decimal(0)) { $0 + $1.amount.value }
         let bills: Decimal = paidThisMonth + unpaidThisMonth
-        let net = income - bills
+        let net = startingBalance + income - bills
         let eligible = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }
         let next = eligible.min(by: { $0.nextDueDate < $1.nextDueDate })
         let nextText: String = {
