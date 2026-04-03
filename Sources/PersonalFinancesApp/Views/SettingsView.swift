@@ -1013,7 +1013,24 @@ private struct AIParserTestRow: View {
             let cmd = try await parser.parse(userInput: "spent 100 on food")
             result = "OK: \(cmd.type.rawValue)"
         } catch {
-            result = "Error contacting model"
+            if let e = error as? AICommandParser.AICommandParserError {
+                switch e {
+                case .localNotRunning:
+                    result = "Local AI is not running"
+                case .requestTimedOut:
+                    result = "Request timed out"
+                case .externalAPIKeyMissing:
+                    result = "External API key missing"
+                case .externalUnauthorized:
+                    result = "External AI unauthorized"
+                case .badStatus(let code):
+                    result = "Model error (\(code))"
+                case .invalidResponse:
+                    result = "Invalid model response"
+                }
+            } else {
+                result = "Error contacting model"
+            }
         }
         isTesting = false
     }

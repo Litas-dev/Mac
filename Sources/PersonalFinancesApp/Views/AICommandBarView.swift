@@ -40,7 +40,7 @@ struct AICommandBarView: View {
             url = URL(string: store.settings.aiExternalEndpoint) ?? URL(string: "https://api.groq.com/openai/v1/chat/completions")!
             provider = .externalGroq
         }
-        let cfg = AICommandParser.Config(endpoint: url, model: store.settings.aiModel, timeout: 120, provider: provider, apiKey: store.settings.aiExternalAPIKey)
+        let cfg = AICommandParser.Config(endpoint: url, model: store.settings.aiModel, timeout: 20, provider: provider, apiKey: store.settings.aiExternalAPIKey)
         return AICommandParser(config: cfg)
     }
     
@@ -288,8 +288,31 @@ struct AICommandBarView: View {
                 showPanel = true
             }
         } catch {
-            showError("Model unavailable. Is Ollama running?")
-            providerStatus = .offline
+            if let e = error as? AICommandParser.AICommandParserError {
+                switch e {
+                case .localNotRunning:
+                    showError("Local AI is not running. Start Ollama, or switch AI Provider to External in Settings.")
+                    providerStatus = .offline
+                case .requestTimedOut:
+                    showError("AI request timed out. Check the model/server and try again.")
+                    providerStatus = .offline
+                case .externalAPIKeyMissing:
+                    showError("External AI needs an API key. Add it in Settings → AI, or switch to Local.")
+                    providerStatus = .offline
+                case .externalUnauthorized:
+                    showError("External AI authorization failed. Check your API key.")
+                    providerStatus = .offline
+                case .badStatus(let code):
+                    showError("AI server returned an error (\(code)).")
+                    providerStatus = .offline
+                case .invalidResponse:
+                    showError("AI server returned an invalid response.")
+                    providerStatus = .offline
+                }
+            } else {
+                showError("AI error. Check your AI settings and try again.")
+                providerStatus = .offline
+            }
             showPanel = true
         }
         isLoading = false

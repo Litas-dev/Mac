@@ -24,6 +24,15 @@ struct AIParsedCommand: Codable {
 }
 
 final class AICommandParser {
+    enum AICommandParserError: Error {
+        case localNotRunning
+        case requestTimedOut
+        case externalAPIKeyMissing
+        case externalUnauthorized
+        case badStatus(Int)
+        case invalidResponse
+    }
+    
     struct Config {
         enum Provider { case local, externalGroq }
         var endpoint: URL = URL(string: "http://localhost:11434/api/generate")!
@@ -101,6 +110,7 @@ final class AICommandParser {
         if config.provider != .local {
             if let cmd = try await tryExternal(systemPrompt: systemPrompt, userInput: userInput) { return cmd }
         } else {
+            try await preflightLocal()
             let candidates: [String] = [config.model, "qwen:3.5-4b", "qwen-3.5:4b", "qwen3.5:4b", "qwen2.5:4b"]
             for modelName in candidates {
                 if let cmd = try await tryGenerate(model: modelName, systemPrompt: systemPrompt, userInput: userInput) {
@@ -112,9 +122,50 @@ final class AICommandParser {
         return AIParsedCommand(type: .error, amount: nil, category: nil, contact: nil, bill: nil, text: nil, date: nil, name: nil, recurrence: nil, dueDay: nil, error: "model_unavailable")
     }
     
+    private func preflightLocal() async throws {
+        guard let url = localTagsURL() else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = min(2.0, max(0.5, config.timeout))
+        do {
+            let (_, response) = try await URLSession.shared.data(for: req, delegate: nil)
+            guard let http = response as? HTTPURLResponse else { throw AICommandParserError.invalidResponse }
+            guard (200...299).contains(http.statusCode) else { throw AICommandParserError.badStatus(http.statusCode) }
+        } catch {
+            if let mapped = mapLocalConnectivityError(error) { throw mapped }
+            throw error
+        }
+    }
+    
+    private func localTagsURL() -> URL? {
+        var comps = URLComponents(url: config.endpoint, resolvingAgainstBaseURL: false)
+        comps?.path = "/api/tags"
+        comps?.query = nil
+        return comps?.url
+    }
+    
+    private func mapLocalConnectivityError(_ error: Error) -> Error? {
+        if let e = error as? AICommandParserError { return e }
+        if let u = error as? URLError {
+            switch u.code {
+            case .timedOut:
+                return AICommandParserError.requestTimedOut
+            case .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet, .networkConnectionLost, .dnsLookupFailed:
+                return AICommandParserError.localNotRunning
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+    
     private func tryExternal(systemPrompt: String, userInput: String) async throws -> AIParsedCommand? {
+        if (config.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+            throw AICommandParserError.externalAPIKeyMissing
+        }
         var req = URLRequest(url: config.endpoint)
         req.httpMethod = "POST"
+        req.timeoutInterval = config.timeout
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
         // Groq only
         if let k = config.apiKey { req.addValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
@@ -128,7 +179,10 @@ final class AICommandParser {
             "stream": false
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        let (data, _) = try await URLSession.shared.data(for: req, delegate: nil)
+        let (data, response) = try await URLSession.shared.data(for: req, delegate: nil)
+        guard let http = response as? HTTPURLResponse else { throw AICommandParserError.invalidResponse }
+        if http.statusCode == 401 || http.statusCode == 403 { throw AICommandParserError.externalUnauthorized }
+        if http.statusCode >= 400 { throw AICommandParserError.badStatus(http.statusCode) }
         // Try OpenAI-like content -> choices[0].message.content
         if let obj = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
            let choices = obj["choices"] as? [[String: Any]],
@@ -164,19 +218,27 @@ final class AICommandParser {
         ]
         var req = URLRequest(url: config.endpoint)
         req.httpMethod = "POST"
+        req.timeoutInterval = config.timeout
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        let (data, _) = try await URLSession.shared.data(for: req, delegate: nil)
-        struct OllamaResp: Decodable { let response: String? }
-        guard let decoded = try? JSONDecoder().decode(OllamaResp.self, from: data),
-              let raw = decoded.response?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty,
-              let jsonData = raw.data(using: .utf8)
-        else { return nil }
-        if let cmd = try? JSONDecoder().decode(AIParsedCommand.self, from: jsonData) {
-            return cmd
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req, delegate: nil)
+            guard let http = response as? HTTPURLResponse else { throw AICommandParserError.invalidResponse }
+            if http.statusCode >= 400 { throw AICommandParserError.badStatus(http.statusCode) }
+            struct OllamaResp: Decodable { let response: String? }
+            guard let decoded = try? JSONDecoder().decode(OllamaResp.self, from: data),
+                  let raw = decoded.response?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty,
+                  let jsonData = raw.data(using: .utf8)
+            else { return nil }
+            if let cmd = try? JSONDecoder().decode(AIParsedCommand.self, from: jsonData) {
+                return cmd
+            }
+            return nil
+        } catch {
+            if let mapped = mapLocalConnectivityError(error) { throw mapped }
+            throw error
         }
-        return nil
     }
     
     private func heuristicParse(_ input: String) -> AIParsedCommand? {
