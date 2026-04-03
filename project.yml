@@ -38,4 +38,4 @@ targets:
     sources:
       - path: Tests/PersonalFinancesTests
     dependencies:
-      - target: PersonalFinances
+      - target: Kivana

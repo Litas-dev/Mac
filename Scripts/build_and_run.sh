@@ -83,8 +83,12 @@ if [ -f "$PROJECT_DIR/Package.swift" ]; then
   echo "Done."
 else
   echo "› Building with Xcode"
-  SCHEME_NAME="${SCHEME_NAME:-PersonalFinances}"
-  xcodebuild -project "$PROJECT_DIR/PersonalFinances.xcodeproj" \
+  SCHEME_NAME="${SCHEME_NAME:-Kivana}"
+  XCODEPROJ="$PROJECT_DIR/Kivana.xcodeproj"
+  if [ ! -d "$XCODEPROJ" ]; then
+    XCODEPROJ="$PROJECT_DIR/PersonalFinances.xcodeproj"
+  fi
+  xcodebuild -project "$XCODEPROJ" \
     -scheme "$SCHEME_NAME" -configuration Debug \
     -derivedDataPath "$DERIVED" -destination 'platform=macOS' \
     build | grep -E '^\*\*|error:|warning:' || true

@@ -26,7 +26,7 @@ This repo is a Swift Package Manager macOS app (macOS 13+, Intel + Apple Silicon
 ```
 
 - Open in Xcode:
-  - Open `Package.swift` (or the included `PersonalFinances.xcodeproj` if you prefer).
+  - Open `Package.swift` (or the included `Kivana.xcodeproj` if you prefer).
 
 ## Calendar Sync
 - Enable in the app: Settings → Notifications → Calendar sync.
