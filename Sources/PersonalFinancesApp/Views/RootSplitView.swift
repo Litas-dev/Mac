@@ -46,11 +46,16 @@ struct RootSplitView: View {
         selectedSection == .income || selectedSection == .accounts || selectedSection == .debts || selectedSection == .goals
     }
     
+    private var shouldOfferAddBillInTouchBar: Bool {
+        selectedSection == .overview && activeTouchBarBill == nil
+    }
+    
     private var touchBarTitle: String {
         if selectedSection == .income { return "Add Income" }
         if selectedSection == .accounts { return "Add Account" }
         if selectedSection == .debts { return "Add Debt" }
         if selectedSection == .goals { return "Add Goal" }
+        if shouldOfferAddBillInTouchBar { return "Add Bill" }
         return activeTouchBarBill?.name ?? "You are on track this month"
     }
     #endif
@@ -120,14 +125,19 @@ struct RootSplitView: View {
                     }()
                     TouchBarHost(
                         title: isCloseMode ? "Close" : touchBarTitle,
-                        isEnabled: isCloseMode ? true : (isAddSection ? true : (activeTouchBarBill != nil)),
-                        bezelColor: isCloseMode ? .controlColor : (isAddSection ? .systemBlue : touchBarBezelColor),
+                        isEnabled: isCloseMode ? true : (isAddSection || shouldOfferAddBillInTouchBar || (activeTouchBarBill != nil)),
+                        bezelColor: isCloseMode ? .controlColor : ((isAddSection || shouldOfferAddBillInTouchBar) ? .systemBlue : touchBarBezelColor),
                         titleColor: isCloseMode ? .labelColor : .white,
                         onTap: {
                             if isCloseMode {
                                 editingBill = nil
                                 editingIncome = nil
                                 showingAdd = false
+                                return
+                            }
+                            if shouldOfferAddBillInTouchBar {
+                                selectedSection = .overview
+                                showingAdd = true
                                 return
                             }
                             if selectedSection == .income {
