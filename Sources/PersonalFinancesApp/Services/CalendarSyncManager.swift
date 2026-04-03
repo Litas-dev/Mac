@@ -254,7 +254,7 @@ private final class CalendarSyncMappingStore {
             guard let data else { return [:] }
             let decoded = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
             if !decoded.isEmpty {
-                save(decoded)
+                saveUnlocked(decoded)
             }
             return decoded
         }
@@ -262,9 +262,13 @@ private final class CalendarSyncMappingStore {
     
     func save(_ mapping: [String: String]) {
         queue.sync {
-            guard let data = try? JSONEncoder().encode(mapping) else { return }
-            try? data.write(to: fileURL(), options: .atomic)
+            saveUnlocked(mapping)
         }
+    }
+    
+    private func saveUnlocked(_ mapping: [String: String]) {
+        guard let data = try? JSONEncoder().encode(mapping) else { return }
+        try? data.write(to: fileURL(), options: .atomic)
     }
     
     private func fileURL() -> URL {
