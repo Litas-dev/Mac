@@ -46,15 +46,14 @@ struct AICommandBarView: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            // Unified input + button container to align edges and height with the "+" toolbar button
             HStack(spacing: 0) {
-                TextField("Command: pay | schedule | income | expense", text: $input, onCommit: { Task { await runParse() } })
+                TextField("Command…", text: $input, onCommit: { Task { await runParse() } })
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .frame(height: 22)
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
                     .focused($inputFocused)
-                Divider().frame(width: 1, height: 20).opacity(0.25)
+                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
                 Button {
                     if suggestions.isEmpty {
                         suggestions = CommandMemoryStore.shared.recents()
@@ -64,20 +63,20 @@ struct AICommandBarView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 26, height: 28)
+                        .frame(width: 32, height: 28)
                 }
                 .buttonStyle(.plain)
-                Divider().frame(width: 1, height: 20).opacity(0.25)
+                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
                 Button { Task { await runParse() } } label: {
                     Group {
                         if isLoading {
                             ProgressView().controlSize(.small)
                         } else {
                             Text("Parse")
-                                .font(.system(size: 13, weight: .semibold)) // match "+" button feel
+                                .font(.system(size: 13, weight: .semibold))
                         }
                     }
-                    .frame(width: 64, height: 28)
+                    .frame(width: 68, height: 28)
                 }
                 .buttonStyle(.plain)
                 .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
@@ -123,14 +122,23 @@ struct AICommandBarView: View {
                     .padding(12)
                     .frame(width: 420)
                 }
+                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
                 Circle()
                     .fill(statusColor())
                     .frame(width: 8, height: 8)
-                    .padding(.leading, 8)
+                    .frame(width: 24, height: 28)
                     .help(statusHelp())
             }
             .frame(height: 28)
             .frame(maxWidth: 460, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.14))
+            )
             .contentShape(Rectangle())
             .onTapGesture {
                 if suggestions.isEmpty {
