@@ -288,43 +288,45 @@ struct RootSplitView: View {
             }
         }
         #if os(macOS)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 10) {
-                Menu {
-                    Button("Add Bill…") {
-                        selectedSection = .overview
-                        showingAdd = true
-                    }
-                    Button("Add Income…") {
-                        selectedSection = .income
-                        showingAdd = true
-                    }
-                    Divider()
-                    Button("Add Sample Data…") {
-                        store.generateSampleData()
-                    }
-                    Button("Clear Sample Data…") {
-                        store.clearSampleData()
-                    }
-                    Divider()
-                    Button(role: .destructive) {
-                        showResetAlert = true
+        .background(
+            TitlebarAccessoryHost(layout: .leading) {
+                HStack(spacing: 10) {
+                    Menu {
+                        Button("Add Bill…") {
+                            selectedSection = .overview
+                            showingAdd = true
+                        }
+                        Button("Add Income…") {
+                            selectedSection = .income
+                            showingAdd = true
+                        }
+                        Divider()
+                        Button("Add Sample Data…") {
+                            store.generateSampleData()
+                        }
+                        Button("Clear Sample Data…") {
+                            store.clearSampleData()
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            showResetAlert = true
+                        } label: {
+                            Text("Reset All Data…")
+                        }
                     } label: {
-                        Text("Reset All Data…")
+                        Image(systemName: "plus")
                     }
-                } label: {
-                    Image(systemName: "plus")
+                    .menuStyle(.borderlessButton)
+                    
+                    AICommandBarView(resetToken: aiResetToken)
+                        .frame(width: 380)
                 }
-                .menuStyle(.borderlessButton)
-                
-                AICommandBarView(resetToken: aiResetToken)
-                    .frame(width: 380)
-                
-                Spacer()
+                .padding(.leading, 72)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-        }
+            .frame(width: 1, height: 1)
+            .opacity(0.001)
+        )
         #endif
         .alert(placeholderTitle, isPresented: $showPlaceholderAlert) {
         } message: {
