@@ -212,11 +212,6 @@ struct RootSplitView: View {
                 window.titleVisibility = .hidden
                 window.titlebarAppearsTransparent = true
                 window.title = ""
-                if #available(macOS 11.0, *) {
-                    window.toolbarStyle = .unifiedCompact
-                }
-                window.toolbar?.showsBaselineSeparator = false
-                window.toolbar = nil
             }
             NotificationManager.shared.updateDockBadge(for: store.bills, settings: store.settings)
             #endif
@@ -287,47 +282,39 @@ struct RootSplitView: View {
                 #endif
             }
         }
-        #if os(macOS)
-        .background(
-            TitlebarAccessoryHost(layout: .leading) {
-                HStack(spacing: 10) {
-                    Menu {
-                        Button("Add Bill…") {
-                            selectedSection = .overview
-                            showingAdd = true
-                        }
-                        Button("Add Income…") {
-                            selectedSection = .income
-                            showingAdd = true
-                        }
-                        Divider()
-                        Button("Add Sample Data…") {
-                            store.generateSampleData()
-                        }
-                        Button("Clear Sample Data…") {
-                            store.clearSampleData()
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            showResetAlert = true
-                        } label: {
-                            Text("Reset All Data…")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Menu {
+                    Button("Add Bill…") {
+                        selectedSection = .overview
+                        showingAdd = true
                     }
-                    .menuStyle(.borderlessButton)
-                    
-                    AICommandBarView(resetToken: aiResetToken)
-                        .frame(width: 380)
+                    Button("Add Income…") {
+                        selectedSection = .income
+                        showingAdd = true
+                    }
+                    Divider()
+                    Button("Add Sample Data…") {
+                        store.generateSampleData()
+                    }
+                    Button("Clear Sample Data…") {
+                        store.clearSampleData()
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        showResetAlert = true
+                    } label: {
+                        Text("Reset All Data…")
+                    }
+                } label: {
+                    Image(systemName: "plus")
                 }
-                .padding(.leading, 72)
-                .padding(.vertical, 4)
             }
-            .frame(width: 1, height: 1)
-            .opacity(0.001)
-        )
-        #endif
+            ToolbarItem(placement: .navigation) {
+                AICommandBarView(resetToken: aiResetToken)
+                    .frame(width: 380)
+            }
+        }
         .alert(placeholderTitle, isPresented: $showPlaceholderAlert) {
         } message: {
             Text("This action is not implemented yet.")

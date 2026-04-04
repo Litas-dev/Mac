@@ -11,8 +11,8 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""
-    CURRENT_PROJECT_VERSION: "45"
-    MARKETING_VERSION: "0.5.12"
+    CURRENT_PROJECT_VERSION: "46"
+    MARKETING_VERSION: "0.5.13"
 targets:
   Kivana:
     type: application

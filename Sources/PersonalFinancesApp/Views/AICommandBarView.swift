@@ -45,145 +45,196 @@ struct AICommandBarView: View {
     }
     
     var body: some View {
-        HStack(spacing: 0) {
-            TextField("Command…", text: $input, onCommit: { Task { await runParse() } })
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 12)
-                .frame(height: 28)
-                .focused($inputFocused)
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
-            Button {
+        VStack(spacing: 8) {
+            // Unified input + button container to align edges and height with the "+" toolbar button
+            HStack(spacing: 0) {
+                TextField("Command: pay | schedule | income | expense", text: $input, onCommit: { Task { await runParse() } })
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 10)
+                    .frame(height: 22)
+                    .focused($inputFocused)
+                Divider().frame(width: 1, height: 20).opacity(0.25)
+                Button {
+                    if suggestions.isEmpty {
+                        suggestions = CommandMemoryStore.shared.recents()
+                    }
+                    showSuggestions.toggle()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 28)
+                }
+                .buttonStyle(.plain)
+                Divider().frame(width: 1, height: 20).opacity(0.25)
+                Button { Task { await runParse() } } label: {
+                    Group {
+                        if isLoading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Parse")
+                                .font(.system(size: 13, weight: .semibold)) // match "+" button feel
+                        }
+                    }
+                    .frame(width: 64, height: 28)
+                }
+                .buttonStyle(.plain)
+                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                .popover(isPresented: $showPanel, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let err = parseError {
+                            Text("Error").font(.headline)
+                            Text(err).foregroundStyle(.secondary)
+                            HStack {
+                                Spacer()
+                                Button("Close") {
+                                    parseError = nil
+                                    showPanel = false
+                                }
+                            }
+                        } else if let p = preview {
+                            Text("Review").font(.headline)
+                            Text(p).foregroundStyle(.secondary)
+                            HStack {
+                                Button("Confirm") { confirm() }.buttonStyle(.borderedProminent)
+                                Button("Cancel") {
+                                    preview = nil
+                                    parsed = nil
+                                    showPanel = false
+                                    inputFocused = false
+                                }
+                            }
+                        } else if let ok = success {
+                            Text("Done").font(.headline)
+                            Text(ok).foregroundStyle(.secondary)
+                            HStack {
+                                Spacer()
+                                Button("Close") {
+                                    success = nil
+                                    showPanel = false
+                                    inputFocused = false
+                                }
+                            }
+                        } else {
+                            Text("No details").foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .frame(width: 420)
+                }
+                Circle()
+                    .fill(statusColor())
+                    .frame(width: 8, height: 8)
+                    .padding(.leading, 8)
+                    .help(statusHelp())
+            }
+            .frame(height: 28)
+            .frame(maxWidth: 460, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
                 if suggestions.isEmpty {
                     suggestions = CommandMemoryStore.shared.recents()
                 }
-                showSuggestions.toggle()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 28)
+                inputFocused = true
+                showSuggestions = true
             }
-            .buttonStyle(.plain)
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
-            Button { Task { await runParse() } } label: {
-                Group {
-                    if isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Parse")
-                            .font(.system(size: 13, weight: .semibold))
+            .popover(isPresented: $showSuggestions, arrowEdge: .top) {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if suggestions.isEmpty {
+                            Text("No recent commands yet.")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                        } else {
+                            ForEach(suggestions) { s in
+                                Button {
+                                    ignoreNextInputChangeReset = true
+                                    parsed = s.command
+                                    preview = makePreview(for: s.command)
+                                    input = s.input
+                                    showSuggestions = false
+                                    showPanel = true
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Text(label(for: s.command))
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.12)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
+                    .padding(10)
                 }
-                .frame(width: 68, height: 28)
+                .frame(width: 420, height: 180)
             }
-            .buttonStyle(.plain)
-            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-            .popover(isPresented: $showPanel, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let err = parseError {
-                        Text("Error").font(.headline)
-                        Text(err).foregroundStyle(.secondary)
-                        HStack {
-                            Spacer()
-                            Button("Close") {
-                                parseError = nil
-                                showPanel = false
-                            }
-                        }
-                    } else if let p = preview {
-                        Text("Review").font(.headline)
-                        Text(p).foregroundStyle(.secondary)
-                        HStack {
-                            Button("Confirm") { confirm() }.buttonStyle(.borderedProminent)
-                            Button("Cancel") {
-                                preview = nil
-                                parsed = nil
-                                showPanel = false
-                                inputFocused = false
-                            }
-                        }
-                    } else if let ok = success {
-                        Text("Done").font(.headline)
-                        Text(ok).foregroundStyle(.secondary)
-                        HStack {
-                            Spacer()
-                            Button("Close") {
-                                success = nil
-                                showPanel = false
-                                inputFocused = false
-                            }
-                        }
-                    } else {
-                        Text("No details").foregroundStyle(.secondary)
-                    }
-                }
-                .padding(12)
-                .frame(width: 420)
-            }
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.vertical, 6)
-            Circle()
-                .fill(statusColor())
-                .frame(width: 8, height: 8)
-                .frame(width: 24, height: 28)
-                .help(statusHelp())
-        }
-        .frame(height: 28)
-        .frame(maxWidth: 460, alignment: .leading)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.14))
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onTapGesture {
-            if suggestions.isEmpty {
-                suggestions = CommandMemoryStore.shared.recents()
-            }
-            inputFocused = true
-            showSuggestions = true
-        }
-        .popover(isPresented: $showSuggestions, arrowEdge: .top) {
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if suggestions.isEmpty {
-                        Text("No recent commands yet.")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                    } else {
-                        ForEach(suggestions) { s in
+            
+            if !favorites.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(favorites) { fav in
                             Button {
                                 ignoreNextInputChangeReset = true
-                                parsed = s.command
-                                preview = makePreview(for: s.command)
-                                input = s.input
-                                showSuggestions = false
+                                parsed = fav.command
+                                preview = makePreview(for: fav.command)
+                                input = fav.input
                                 showPanel = true
                             } label: {
-                                HStack(spacing: 8) {
-                                    Text(label(for: s.command))
-                                    Spacer()
+                                HStack(spacing: 6) {
+                                    Image(systemName: "star.fill").foregroundStyle(.yellow)
+                                    Text(label(for: fav.command))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
                                 }
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.12)))
+                                .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.12)))
                             }
                             .buttonStyle(.plain)
                         }
                     }
+                    .padding(.vertical, 2)
                 }
-                .padding(10)
             }
-            .frame(width: 420, height: 180)
+            // spinner is inside the button to avoid shifting layout
+            if let p = preview, !showPanel {
+                HStack {
+                    Text(p).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Favorite") {
+                        if let pc = parsed {
+                            CommandMemoryStore.shared.record(input: input.isEmpty ? p : input, command: pc, favorite: true)
+                            suggestions = CommandMemoryStore.shared.recents()
+                        }
+                    }
+                    Button("Confirm") { confirm() }.buttonStyle(.borderedProminent)
+                    Button("Cancel") { preview = nil; parsed = nil; parseError = nil; success = nil; suppressErrorsUntilInputChange = false; lastErrorMessage = nil; inputFocused = false; showPanel = false }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.1)))
+            } else if let ok = success, !showPanel {
+                Text(ok).foregroundStyle(.green)
+                    .transition(.opacity)
+            } else if let err = parseError, !showPanel {
+                HStack(spacing: 8) {
+                    Text(err).foregroundStyle(.secondary)
+                    Button {
+                        parseError = nil
+                        errorToken = nil
+                        suppressErrorsUntilInputChange = true
+                        lastErrorMessage = err
+                    } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
         }
+        .padding(.vertical, 6)
         .onAppear { refreshFavorites() }
-        .onChange(of: showPanel) { newValue in
-            if !newValue, preview != nil || parseError != nil || success != nil {
-                preview = nil
-                parseError = nil
-                success = nil
-                parsed = nil
-            }
-        }
         .onChange(of: resetToken) { _ in
             clearAndDismiss()
         }
@@ -209,6 +260,7 @@ struct AICommandBarView: View {
                 showSuggestions = true
             } else {
                 showSuggestions = false
+                // Note: Do NOT clear state here, otherwise clicking away dismisses panels/errors incorrectly
             }
             refreshFavorites()
         }
