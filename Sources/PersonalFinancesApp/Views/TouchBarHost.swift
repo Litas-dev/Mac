@@ -9,6 +9,8 @@ struct TouchBarHost: NSViewRepresentable {
     let bezelColor: NSColor
     let titleColor: NSColor
     let onTap: () -> Void
+    var monthStatusText: String? = nil
+    var monthStatusColor: NSColor? = nil
     var onEditTap: (() -> Void)? = nil
     var onPayTap: (() -> Void)? = nil
     var onSnooze1: (() -> Void)? = nil
@@ -29,6 +31,8 @@ struct TouchBarHost: NSViewRepresentable {
         view.isEnabled = isEnabled
         view.bezelColor = bezelColor
         view.titleColor = titleColor
+        view.monthStatusText = monthStatusText
+        view.monthStatusColor = monthStatusColor ?? .controlAccentColor
         return view
     }
     
@@ -44,6 +48,8 @@ struct TouchBarHost: NSViewRepresentable {
         nsView.isEnabled = isEnabled
         nsView.bezelColor = bezelColor
         nsView.titleColor = titleColor
+        nsView.monthStatusText = monthStatusText
+        nsView.monthStatusColor = monthStatusColor ?? .controlAccentColor
         nsView.refresh()
     }
 }
@@ -60,6 +66,8 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     var isEnabled: Bool = true
     var bezelColor: NSColor = .controlAccentColor
     var titleColor: NSColor = .white
+    var monthStatusText: String?
+    var monthStatusColor: NSColor = .controlAccentColor
     
     private let nextBillID = NSTouchBarItem.Identifier("pf.touchbar.nextDueBill")
     private let editBillID = NSTouchBarItem.Identifier("pf.touchbar.editBill")
@@ -67,6 +75,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     private let snooze1ID = NSTouchBarItem.Identifier("pf.touchbar.snooze1")
     private let snooze3ID = NSTouchBarItem.Identifier("pf.touchbar.snooze3")
     private let snoozeWeekID = NSTouchBarItem.Identifier("pf.touchbar.snoozeWeek")
+    private let monthStatusID = NSTouchBarItem.Identifier("pf.touchbar.monthStatus")
     private let reportsID = NSTouchBarItem.Identifier("pf.touchbar.reports")
     
     private weak var button: NSButton?
@@ -75,6 +84,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
     private weak var snooze1Button: NSButton?
     private weak var snooze3Button: NSButton?
     private weak var snoozeWeekButton: NSButton?
+    private weak var monthStatusButton: NSButton?
     private weak var reportsButton: NSButton?
     
     private var customTouchBar: NSTouchBar?
@@ -102,6 +112,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         if onSnoozeWeek != nil { items.append(snoozeWeekID) }
         if onReportsTap != nil {
             items.append(.flexibleSpace)
+            if monthStatusText != nil { items.append(monthStatusID) }
             items.append(reportsID)
         }
         bar.defaultItemIdentifiers = items
@@ -169,6 +180,17 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
             item.view = button
             self.snoozeWeekButton = button
             return item
+        } else if identifier == monthStatusID {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let text = monthStatusText ?? ""
+            let button = NSButton(title: text, target: nil, action: nil)
+            button.bezelColor = monthStatusColor
+            button.bezelStyle = .rounded
+            button.isEnabled = false
+            button.attributedTitle = NSAttributedString(string: text, attributes: [.foregroundColor: NSColor.white])
+            item.view = button
+            self.monthStatusButton = button
+            return item
         } else if identifier == reportsID {
             let item = NSCustomTouchBarItem(identifier: identifier)
             let button = NSButton(title: "Reports", target: self, action: #selector(reportsTapped))
@@ -202,6 +224,11 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         snooze3Button?.isEnabled = isEnabled && onSnooze3 != nil
         snoozeWeekButton?.isEnabled = isEnabled && onSnoozeWeek != nil
         reportsButton?.isEnabled = onReportsTap != nil
+        monthStatusButton?.isEnabled = false
+        if let text = monthStatusText {
+            monthStatusButton?.bezelColor = monthStatusColor
+            monthStatusButton?.attributedTitle = NSAttributedString(string: text, attributes: [.foregroundColor: NSColor.white])
+        }
         
         var items: [NSTouchBarItem.Identifier] = [nextBillID]
         if onEditTap != nil { items.append(editBillID) }
@@ -211,6 +238,7 @@ final class TouchBarResponderView: NSView, NSTouchBarDelegate {
         if onSnoozeWeek != nil { items.append(snoozeWeekID) }
         if onReportsTap != nil {
             items.append(.flexibleSpace)
+            if monthStatusText != nil { items.append(monthStatusID) }
             items.append(reportsID)
         }
         

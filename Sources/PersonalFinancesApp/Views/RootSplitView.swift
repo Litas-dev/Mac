@@ -50,6 +50,32 @@ struct RootSplitView: View {
         selectedSection == .overview && activeTouchBarBill == nil
     }
     
+    private var touchBarMonthStatus: (text: String, color: NSColor)? {
+        guard selectedSection == .overview else { return nil }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let window = max(0, store.settings.reminderDays)
+        let eligible = store.bills.filter { b in
+            if b.hiddenUntilEdited { return false }
+            if b.isSnoozedActive { return false }
+            if b.isPaidFor(date: b.nextDueDate) { return false }
+            return true
+        }
+        let overdue = eligible.contains { cal.startOfDay(for: $0.nextDueDate) < today }
+        if overdue {
+            return ("This month: needs attention", .systemRed)
+        }
+        let dueSoon = eligible.contains { b in
+            let due = cal.startOfDay(for: b.nextDueDate)
+            let delta = cal.dateComponents([.day], from: today, to: due).day ?? 0
+            return delta >= 0 && delta <= window
+        }
+        if dueSoon {
+            return ("This month: due soon", .systemOrange)
+        }
+        return ("This month: good", .systemGreen)
+    }
+    
     private var touchBarTitle: String {
         if selectedSection == .income { return "Add Income" }
         if selectedSection == .accounts { return "Add Account" }
@@ -57,6 +83,72 @@ struct RootSplitView: View {
         if selectedSection == .goals { return "Add Goal" }
         if shouldOfferAddBillInTouchBar { return "Add Bill" }
         return activeTouchBarBill?.name ?? "You are on track this month"
+    }
+    
+    @ViewBuilder
+    private func touchBarBackground() -> some View {
+        if selectedSection == .settings {
+            SettingsTouchBarHost(
+                selectedSection: settingsSelectedSection,
+                onSelect: { sectionId in
+                    settingsSelectedSection = sectionId
+                }
+            )
+        } else {
+            let isCloseMode = editingBill != nil || editingIncome != nil || showingAdd
+            let editAction: (() -> Void)? = {
+                if isCloseMode { return nil }
+                if selectedSection == .income, let inc = store.selectedIncome {
+                    return { editingIncome = inc }
+                }
+                if let bill = store.selectedBill {
+                    return { editingBill = bill }
+                }
+                return nil
+            }()
+            let status = touchBarMonthStatus
+            TouchBarHost(
+                title: isCloseMode ? "Close" : touchBarTitle,
+                isEnabled: isCloseMode ? true : (isAddSection || shouldOfferAddBillInTouchBar || (activeTouchBarBill != nil)),
+                bezelColor: isCloseMode ? .controlColor : ((isAddSection || shouldOfferAddBillInTouchBar) ? .systemBlue : touchBarBezelColor),
+                titleColor: isCloseMode ? .labelColor : .white,
+                onTap: {
+                    if isCloseMode {
+                        editingBill = nil
+                        editingIncome = nil
+                        showingAdd = false
+                        return
+                    }
+                    if shouldOfferAddBillInTouchBar {
+                        selectedSection = .overview
+                        showingAdd = true
+                        return
+                    }
+                    if selectedSection == .income {
+                        showingAdd = true
+                    } else if selectedSection == .accounts {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddAccount"), object: nil)
+                    } else if selectedSection == .debts {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddDebt"), object: nil)
+                    } else if selectedSection == .goals {
+                        NotificationCenter.default.post(name: NSNotification.Name("OpenAddGoal"), object: nil)
+                    } else {
+                        guard let b = activeTouchBarBill else { return }
+                        selectedSection = .overview
+                        store.selectedBillID = b.id
+                        detailScreen = .info
+                        touchBarActionBill = b
+                    }
+                },
+                monthStatusText: status?.text,
+                monthStatusColor: status?.color,
+                onEditTap: editAction,
+                onPayTap: nil,
+                onReportsTap: {
+                    selectedSection = .reports
+                }
+            )
+        }
     }
     #endif
     
@@ -103,67 +195,7 @@ struct RootSplitView: View {
         }
         #if os(macOS)
         .background(
-            Group {
-                if selectedSection == .settings {
-                    SettingsTouchBarHost(
-                        selectedSection: settingsSelectedSection,
-                        onSelect: { sectionId in
-                            settingsSelectedSection = sectionId
-                        }
-                    )
-                } else {
-                    let isCloseMode = editingBill != nil || editingIncome != nil || showingAdd
-                    let editAction: (() -> Void)? = {
-                        if isCloseMode { return nil }
-                        if selectedSection == .income, let inc = store.selectedIncome {
-                            return { editingIncome = inc }
-                        }
-                        if let bill = store.selectedBill {
-                            return { editingBill = bill }
-                        }
-                        return nil
-                    }()
-                    TouchBarHost(
-                        title: isCloseMode ? "Close" : touchBarTitle,
-                        isEnabled: isCloseMode ? true : (isAddSection || shouldOfferAddBillInTouchBar || (activeTouchBarBill != nil)),
-                        bezelColor: isCloseMode ? .controlColor : ((isAddSection || shouldOfferAddBillInTouchBar) ? .systemBlue : touchBarBezelColor),
-                        titleColor: isCloseMode ? .labelColor : .white,
-                        onTap: {
-                            if isCloseMode {
-                                editingBill = nil
-                                editingIncome = nil
-                                showingAdd = false
-                                return
-                            }
-                            if shouldOfferAddBillInTouchBar {
-                                selectedSection = .overview
-                                showingAdd = true
-                                return
-                            }
-                            if selectedSection == .income {
-                                showingAdd = true
-                            } else if selectedSection == .accounts {
-                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddAccount"), object: nil)
-                            } else if selectedSection == .debts {
-                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddDebt"), object: nil)
-                            } else if selectedSection == .goals {
-                                NotificationCenter.default.post(name: NSNotification.Name("OpenAddGoal"), object: nil)
-                            } else {
-                                guard let b = activeTouchBarBill else { return }
-                                selectedSection = .overview
-                                store.selectedBillID = b.id
-                                detailScreen = .info
-                                touchBarActionBill = b
-                            }
-                        },
-                        onEditTap: editAction,
-                        onPayTap: nil,
-                        onReportsTap: {
-                            selectedSection = .reports
-                        }
-                    )
-                }
-            }
+            touchBarBackground()
             .frame(width: 1, height: 1)
             .opacity(0.001)
         )
