@@ -4,6 +4,7 @@ import SwiftUI
 import AppKit
 
 struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
+    @EnvironmentObject private var store: AppStore
     let layout: NSLayoutConstraint.Attribute
     let content: Content
     
@@ -44,7 +45,7 @@ struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             attachIfNeeded(nsView: nsView, context: context)
-            context.coordinator.hosting?.rootView = AnyView(content)
+            context.coordinator.hosting?.rootView = AnyView(content.environmentObject(store))
         }
     }
     
@@ -60,7 +61,7 @@ struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
         
         context.coordinator.detach()
         
-        let hosting = NSHostingView(rootView: AnyView(content))
+        let hosting = NSHostingView(rootView: AnyView(content.environmentObject(store)))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         hosting.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         hosting.setContentHuggingPriority(.defaultHigh, for: .vertical)
