@@ -8,11 +8,13 @@ enum BankCSVImportEngine {
         var skippedUnassigned: Int
     }
     
-    static func apply(plan: BankCSVImporter.ImportPlan, store: AppStore, createAccounts: Bool) -> Result {
+    static func apply(plan: BankCSVImporter.ImportPlan, store: AppStore, createAccounts: Bool, adjustSettings: Bool = true) -> Result {
         var result = Result(createdAccounts: 0, importedTransactions: 0, skippedDuplicates: 0, skippedUnassigned: 0)
         store.performBatchUpdate {
-            store.settings.preferManualForecastBalance = true
-            store.settings.hideAccountBalances = true
+            if adjustSettings {
+                store.settings.preferManualForecastBalance = true
+                store.settings.hideAccountBalances = true
+            }
             result = _apply(plan: plan, store: store, createAccounts: createAccounts)
         }
         return result

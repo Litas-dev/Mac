@@ -11,6 +11,44 @@ struct TransactionsListView: View {
     @State private var editing: Transaction? = nil
     @State private var showingNew: Bool = false
     @State private var importAlert: ImportAlert? = nil
+    @State private var kindFilter: KindFilter = .all
+    @State private var sourceFilter: SourceFilter = .all
+    @State private var dateFilter: DateFilter = .all
+    @State private var sort: Sort = .dateDesc
+    @State private var showFilters: Bool = false
+    
+    private enum KindFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case expense = "Expenses"
+        case income = "Income"
+        case transfer = "Transfers"
+        var id: String { rawValue }
+    }
+    
+    private enum SourceFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case imported = "Imported"
+        case manual = "Manual"
+        var id: String { rawValue }
+    }
+    
+    private enum DateFilter: String, CaseIterable, Identifiable {
+        case all = "All time"
+        case last30 = "Last 30 days"
+        case last90 = "Last 90 days"
+        case thisMonth = "This month"
+        var id: String { rawValue }
+    }
+    
+    private enum Sort: String, CaseIterable, Identifiable {
+        case dateDesc = "Newest"
+        case dateAsc = "Oldest"
+        case amountDesc = "Amount ↓"
+        case amountAsc = "Amount ↑"
+        case netDesc = "Net ↓"
+        case netAsc = "Net ↑"
+        var id: String { rawValue }
+    }
     
     private var filtered: [Transaction] {
         var items = store.transactions
@@ -25,29 +63,81 @@ struct TransactionsListView: View {
                 $0.tags.contains(where: { $0.localizedCaseInsensitiveContains(search) })
             }
         }
-        return items.sorted(by: { $0.date > $1.date })
+        switch kindFilter {
+        case .all:
+            break
+        case .expense:
+            items = items.filter { $0.kind == .expense }
+        case .income:
+            items = items.filter { $0.kind == .income }
+        case .transfer:
+            items = items.filter { $0.kind == .transfer }
+        }
+        switch sourceFilter {
+        case .all:
+            break
+        case .imported:
+            items = items.filter { $0.tags.contains("bank-csv") }
+        case .manual:
+            items = items.filter { !$0.tags.contains("bank-csv") }
+        }
+        switch dateFilter {
+        case .all:
+            break
+        case .last30:
+            let now = Date()
+            let past = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+            items = items.filter { $0.date >= past }
+        case .last90:
+            let now = Date()
+            let past = Calendar.current.date(byAdding: .day, value: -90, to: now) ?? now
+            items = items.filter { $0.date >= past }
+        case .thisMonth:
+            let cal = Calendar.current
+            let now = Date()
+            items = items.filter { cal.isDate($0.date, equalTo: now, toGranularity: .month) }
+        }
+        switch sort {
+        case .dateDesc:
+            return items.sorted(by: { $0.date > $1.date })
+        case .dateAsc:
+            return items.sorted(by: { $0.date < $1.date })
+        case .amountDesc:
+            return items.sorted(by: { $0.amount.value > $1.amount.value })
+        case .amountAsc:
+            return items.sorted(by: { $0.amount.value < $1.amount.value })
+        case .netDesc:
+            return items.sorted(by: { signedValue($0) > signedValue($1) })
+        case .netAsc:
+            return items.sorted(by: { signedValue($0) < signedValue($1) })
+        }
     }
     
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Transactions")
-                    .font(.title2.bold())
-                Spacer()
-                Menu {
-                    Button("All Accounts") { accountFilterID = nil }
-                    Divider()
-                    ForEach(store.accounts.filter { !$0.archived }.sorted(by: { $0.name < $1.name })) { a in
-                        Button(a.name) { accountFilterID = a.id }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transactions")
+                        .font(.title2.bold())
+                    let summary = filterSummary()
+                    if !summary.isEmpty {
+                        Text(summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                }
+                Spacer()
+                Button {
+                    showFilters = true
                 } label: {
                     HStack(spacing: 6) {
-                        Text(filterTitle())
-                        Image(systemName: "chevron.down").font(.caption.bold())
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                        Text(activeFilterCount == 0 ? "Filters" : "Filters \(activeFilterCount)")
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.15)))
+                }
+                .buttonStyle(.bordered)
+                .popover(isPresented: $showFilters, arrowEdge: .top) {
+                    filtersPopover
                 }
                 Button("Import CSV") { chooseCSV() }
                     .buttonStyle(.bordered)
@@ -57,6 +147,10 @@ struct TransactionsListView: View {
             .padding([.horizontal, .top])
             
             List(selection: $store.selectedTransactionID) {
+                if filtered.isEmpty {
+                    Text("No transactions match the current filters.")
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(filtered) { t in
                     Button {
                         store.selectedTransactionID = t.id
@@ -125,6 +219,106 @@ struct TransactionsListView: View {
         }
     }
     
+    private func filterSummary() -> String {
+        var parts: [String] = []
+        if let id = accountFilterID, let a = store.accounts.first(where: { $0.id == id })?.name {
+            parts.append("Acct: \(a)")
+        }
+        if kindFilter != .all { parts.append(kindFilter.rawValue) }
+        if sourceFilter != .all { parts.append(sourceFilter.rawValue) }
+        if dateFilter != .all { parts.append(dateFilter.rawValue) }
+        if sort != .dateDesc { parts.append("Sort: \(sort.rawValue)") }
+        return parts.joined(separator: " • ")
+    }
+    
+    private func signedValue(_ t: Transaction) -> Decimal {
+        switch t.kind {
+        case .income: return t.amount.value
+        case .expense: return -t.amount.value
+        case .transfer: return 0
+        }
+    }
+
+    private var activeFilterCount: Int {
+        var n = 0
+        if accountFilterID != nil { n += 1 }
+        if kindFilter != .all { n += 1 }
+        if sourceFilter != .all { n += 1 }
+        if dateFilter != .all { n += 1 }
+        if sort != .dateDesc { n += 1 }
+        return n
+    }
+    
+    private var filtersPopover: some View {
+        let accounts = store.accounts.filter { !$0.archived }.sorted(by: { $0.name < $1.name })
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Filters").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text("Account").frame(width: 84, alignment: .leading)
+                    Picker("", selection: $accountFilterID) {
+                        Text("All Accounts").tag(UUID?.none)
+                        ForEach(accounts) { a in
+                            Text(a.name).tag(Optional(a.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                GridRow {
+                    Text("Type").frame(width: 84, alignment: .leading)
+                    Picker("", selection: $kindFilter) {
+                        ForEach(KindFilter.allCases) { k in
+                            Text(k.rawValue).tag(k)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                GridRow {
+                    Text("Source").frame(width: 84, alignment: .leading)
+                    Picker("", selection: $sourceFilter) {
+                        ForEach(SourceFilter.allCases) { s in
+                            Text(s.rawValue).tag(s)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                GridRow {
+                    Text("Date").frame(width: 84, alignment: .leading)
+                    Picker("", selection: $dateFilter) {
+                        ForEach(DateFilter.allCases) { d in
+                            Text(d.rawValue).tag(d)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                GridRow {
+                    Text("Sort").frame(width: 84, alignment: .leading)
+                    Picker("", selection: $sort) {
+                        ForEach(Sort.allCases) { s in
+                            Text(s.rawValue).tag(s)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+            HStack {
+                Button("Reset") {
+                    accountFilterID = nil
+                    kindFilter = .all
+                    sourceFilter = .all
+                    dateFilter = .all
+                    sort = .dateDesc
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+                Button("Close") { showFilters = false }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(12)
+        .frame(width: 420)
+    }
+    
     private func chooseCSV() {
         #if os(macOS)
         let panel = NSOpenPanel()
@@ -140,6 +334,21 @@ struct TransactionsListView: View {
     private func importCSV(from url: URL) {
         Task {
             do {
+                if let plan = try? await Task.detached(operation: { try BankCSVImporter.makePlan(urls: [url]) }).value {
+                    let result = BankCSVImportEngine.apply(plan: plan, store: store, createAccounts: true, adjustSettings: false)
+                    if result.importedTransactions == 0 {
+                        importAlert = ImportAlert(title: "Import Complete", message: "No transactions were imported.")
+                        return
+                    }
+                    var parts: [String] = []
+                    parts.append("Imported \(result.importedTransactions) transactions.")
+                    if result.createdAccounts > 0 { parts.append("Created \(result.createdAccounts) accounts.") }
+                    if result.skippedDuplicates > 0 { parts.append("Skipped \(result.skippedDuplicates) duplicates.") }
+                    if result.skippedUnassigned > 0 { parts.append("Skipped \(result.skippedUnassigned) unassigned.") }
+                    importAlert = ImportAlert(title: "Import Complete", message: parts.joined(separator: " "))
+                    return
+                }
+                
                 let data = try Data(contentsOf: url)
                 let content = String(decoding: data, as: UTF8.self)
                 let rows = await Task.detached { CSVImporter.parse(content: content) }.value
@@ -194,13 +403,6 @@ struct TransactionsListView: View {
     
     private func exactInstitution(_ a: Account) -> String? { a.institution }
     
-    private func filterTitle() -> String {
-        if let id = accountFilterID, let a = store.accounts.first(where: { $0.id == id }) {
-            return a.name
-        }
-        return "All Accounts"
-    }
-    
     private func icon(for kind: Transaction.Kind) -> String {
         switch kind {
         case .expense: return "arrow.up.circle"
@@ -218,8 +420,16 @@ struct TransactionsListView: View {
     }
     
     private func subtitle(for t: Transaction) -> String {
-        if let accountId = t.accountId, let a = store.accounts.first(where: { $0.id == accountId }) {
-            return a.name
+        if t.kind == .transfer {
+            let from = t.accountId.flatMap { id in store.accounts.first(where: { $0.id == id })?.name }
+            let to = t.toAccountId.flatMap { id in store.accounts.first(where: { $0.id == id })?.name }
+            if let from, let to { return "\(from) → \(to)" }
+            if let from { return from }
+            if let to { return to }
+            return "Transfer"
+        }
+        if let accountId = t.accountId, let a = store.accounts.first(where: { $0.id == accountId })?.name {
+            return a
         }
         return ""
     }
@@ -228,7 +438,7 @@ struct TransactionsListView: View {
         switch t.kind {
         case .income: return t.amount.value
         case .expense: return -t.amount.value
-        case .transfer: return 0
+        case .transfer: return t.amount.value
         }
     }
     
@@ -419,7 +629,7 @@ struct TransactionsDetailView: View {
         switch t.kind {
         case .income: return t.amount.value
         case .expense: return -t.amount.value
-        case .transfer: return 0
+        case .transfer: return t.amount.value
         }
     }
     
