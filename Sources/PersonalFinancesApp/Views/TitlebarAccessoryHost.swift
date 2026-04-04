@@ -17,6 +17,8 @@ struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
         weak var window: NSWindow?
         var controller: NSTitlebarAccessoryViewController?
         var hosting: NSHostingView<AnyView>?
+        var makeRootView: (() -> AnyView)?
+        var layoutAttribute: NSLayoutConstraint.Attribute = .leading
         
         func detach() {
             if let window, let controller {
@@ -28,6 +30,37 @@ struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
             controller = nil
             hosting = nil
         }
+        
+        func attachIfNeeded(to window: NSWindow) {
+            if self.window === window, controller != nil {
+                return
+            }
+            detach()
+            let hosting = NSHostingView(rootView: makeRootView?() ?? AnyView(EmptyView()))
+            hosting.translatesAutoresizingMaskIntoConstraints = false
+            hosting.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            hosting.setContentHuggingPriority(.defaultHigh, for: .vertical)
+            
+            let controller = NSTitlebarAccessoryViewController()
+            controller.view = hosting
+            controller.layoutAttribute = layoutAttribute
+            
+            window.addTitlebarAccessoryViewController(controller)
+            
+            self.window = window
+            self.controller = controller
+            self.hosting = hosting
+        }
+    }
+    
+    final class AttachView: NSView {
+        weak var coordinator: Coordinator?
+        
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            coordinator?.attachIfNeeded(to: window)
+        }
     }
     
     func makeCoordinator() -> Coordinator {
@@ -35,46 +68,26 @@ struct TitlebarAccessoryHost<Content: View>: NSViewRepresentable {
     }
     
     func makeNSView(context: Context) -> NSView {
-        let v = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            attachIfNeeded(nsView: v, context: context)
-        }
+        context.coordinator.layoutAttribute = layout
+        context.coordinator.makeRootView = { AnyView(content.environmentObject(store)) }
+        let v = AttachView(frame: .zero)
+        v.coordinator = context.coordinator
         return v
     }
     
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            attachIfNeeded(nsView: nsView, context: context)
-            context.coordinator.hosting?.rootView = AnyView(content.environmentObject(store))
+        context.coordinator.layoutAttribute = layout
+        context.coordinator.makeRootView = { AnyView(content.environmentObject(store)) }
+        if let window = nsView.window {
+            context.coordinator.attachIfNeeded(to: window)
         }
+        context.coordinator.hosting?.rootView = AnyView(content.environmentObject(store))
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.detach()
     }
     
-    private func attachIfNeeded(nsView: NSView, context: Context) {
-        guard let window = nsView.window else { return }
-        if context.coordinator.window === window, context.coordinator.controller != nil {
-            return
-        }
-        
-        context.coordinator.detach()
-        
-        let hosting = NSHostingView(rootView: AnyView(content.environmentObject(store)))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        hosting.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        hosting.setContentHuggingPriority(.defaultHigh, for: .vertical)
-        
-        let controller = NSTitlebarAccessoryViewController()
-        controller.view = hosting
-        controller.layoutAttribute = layout
-        
-        window.addTitlebarAccessoryViewController(controller)
-        
-        context.coordinator.window = window
-        context.coordinator.controller = controller
-        context.coordinator.hosting = hosting
-    }
+    
 }
 #endif
