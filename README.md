@@ -3,7 +3,7 @@
 Kivana is a native macOS SwiftUI app for tracking bills, incomes, accounts, goals, debts, and basic reporting.
 
 ## Version
-- Current: 0.5.13 (pre-alpha)
+- Current: 0.5.14 (pre-alpha)
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 - Build number: increments over time (used as CFBundleVersion)
 

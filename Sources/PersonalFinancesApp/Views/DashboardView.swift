@@ -328,7 +328,7 @@ struct DashboardView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
                 .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-                .onTapGesture { store.selectedBillID = item.bill.id }
+                .simultaneousGesture(TapGesture().onEnded { store.selectedBillID = item.bill.id }, including: .gesture)
                 if isSelected {
                     HStack(spacing: 8) {
                         Button("Mark Paid") { store.logPayment(for: item.bill.id) }
@@ -493,7 +493,7 @@ struct DashboardView: View {
          }
          return nil
      }
-
+     
      private func kpiStrip() -> some View {
         let k = kpis()
         return HStack(spacing: 12) {
@@ -583,7 +583,7 @@ struct DashboardView: View {
                     emphasizeTop && index == 0 && style == .critical ?
                     RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.5), lineWidth: 1) : nil
                 )
-                .onTapGesture { store.selectedBillID = item.bill.id }
+                .simultaneousGesture(TapGesture().onEnded { store.selectedBillID = item.bill.id }, including: .gesture)
                 Divider()
             }
         }
@@ -629,7 +629,7 @@ struct DashboardView: View {
         store.bills
             .filter {
                 let d = daysUntil($0.nextDueDate)
-                return d >= range.lowerBound && d <= range.upperBound && !$0.hiddenUntilEdited && !$0.isSnoozedActive
+                return d >= range.lowerBound && d <= range.upperBound && !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate)
             }
             .filter { matchesSearch($0) }
             .map { RowItem(bill: $0, days: daysUntil($0.nextDueDate)) }

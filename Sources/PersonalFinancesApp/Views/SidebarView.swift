@@ -38,7 +38,7 @@ struct SidebarView: View {
                     .padding(.vertical, 2)
                 }
                 let extra: [SidebarSection] = (store.settings.dashboardStyle == .advanced)
-                    ? [.dueSoon, .dueThisMonth, .deferred, .paidRecently]
+                    ? [.dueSoon, .deferred, .paidRecently]
                     : [.deferred]
                 ForEach(extra) { s in
                     NavigationLink(value: s) {
@@ -143,7 +143,14 @@ struct SidebarView: View {
     private func subtitle(for s: SidebarSection) -> String {
         switch s {
         case .overview:
-            let unpaid = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) }.count
+            let cal = Calendar.current
+            let today = cal.startOfDay(for: Date())
+            let unpaid = store.bills.filter {
+                !$0.hiddenUntilEdited &&
+                !$0.isSnoozedActive &&
+                !$0.isPaidFor(date: $0.nextDueDate) &&
+                cal.startOfDay(for: $0.nextDueDate) <= today
+            }.count
             return unpaid == 0 ? "All paid" : (unpaid == 1 ? "1 unpaid" : "\(unpaid) unpaid")
         case .income:
             return incomeSubtitle()
@@ -167,7 +174,13 @@ struct SidebarView: View {
             let cal = Calendar.current
             let start = cal.startOfDay(for: Date())
             let cutoff = cal.date(byAdding: .day, value: 7, to: start) ?? start
-            let count = store.bills.filter { !$0.hiddenUntilEdited && !$0.isSnoozedActive && !$0.isPaidFor(date: $0.nextDueDate) && cal.startOfDay(for: $0.nextDueDate) <= cutoff }.count
+            let count = store.bills.filter {
+                !$0.hiddenUntilEdited &&
+                !$0.isSnoozedActive &&
+                !$0.isPaidFor(date: $0.nextDueDate) &&
+                cal.startOfDay(for: $0.nextDueDate) >= start &&
+                cal.startOfDay(for: $0.nextDueDate) <= cutoff
+            }.count
             return count == 0 ? "All paid" : (count == 1 ? "1 unpaid" : "\(count) unpaid")
         case .dueThisMonth:
             let cal = Calendar.current
@@ -211,12 +224,18 @@ struct SidebarView: View {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
         let cutoff = cal.date(byAdding: .day, value: 7, to: start) ?? start
-        let hasOverdue = store.bills.contains { !$0.hiddenUntilEdited && cal.startOfDay(for: $0.nextDueDate) < start && !$0.isPaidFor(date: $0.nextDueDate) }
+        let hasOverdue = store.bills.contains {
+            !$0.hiddenUntilEdited &&
+            !$0.isSnoozedActive &&
+            cal.startOfDay(for: $0.nextDueDate) < start &&
+            !$0.isPaidFor(date: $0.nextDueDate)
+        }
         if hasOverdue { return .overdue }
         let hasSoon = store.bills.contains {
             guard !$0.hiddenUntilEdited else { return false }
+            if $0.isSnoozedActive { return false }
             let due = cal.startOfDay(for: $0.nextDueDate)
-            return due >= start && due <= cutoff
+            return due >= start && due <= cutoff && !$0.isPaidFor(date: $0.nextDueDate)
         }
         if hasSoon { return .soon }
         return .none

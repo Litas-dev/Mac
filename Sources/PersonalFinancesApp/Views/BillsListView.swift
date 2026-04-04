@@ -48,7 +48,7 @@ struct BillsListView: View {
             let cutoff = cal.date(byAdding: .day, value: 7, to: start) ?? start
             items = items.filter {
                 let due = cal.startOfDay(for: $0.nextDueDate)
-                return due <= cutoff
+                return due >= start && due <= cutoff && !$0.isPaidFor(date: $0.nextDueDate)
             }
         case .dueThisMonth:
             let cal = Calendar.current
@@ -77,7 +77,7 @@ struct BillsListView: View {
             let cutoff = cal.date(byAdding: .day, value: 7, to: start) ?? start
             items = items.filter {
                 let due = cal.startOfDay(for: $0.nextDueDate)
-                return due <= cutoff
+                return due >= start && due <= cutoff && !$0.isPaidFor(date: $0.nextDueDate)
             }
         case .thisMonth:
             let cal = Calendar.current

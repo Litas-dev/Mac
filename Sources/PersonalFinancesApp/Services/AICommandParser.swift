@@ -89,6 +89,7 @@ final class AICommandParser {
         - If the text has a name before a comma, treat that as the title/name.
         - Understand dates: "today", "tomorrow", "in N days", "on YYYY-MM-DD".
         - Monthly: phrases like "monthly", "every month", "each month"; if day is present set "dueDay", else "dueDay":1.
+        - If the user says they sold something (sold/sell/sale), classify as income.
         - Output keys exactly as in schemas.
         
         Examples:
@@ -108,17 +109,17 @@ final class AICommandParser {
         Output: { "error": "unknown_command" }
         """
         if config.provider != .local {
-            if let cmd = try await tryExternal(systemPrompt: systemPrompt, userInput: userInput) { return cmd }
+            if let cmd = try await tryExternal(systemPrompt: systemPrompt, userInput: userInput) { return reconcile(cmd, userInput: userInput) }
         } else {
             try await preflightLocal()
             let candidates: [String] = [config.model, "qwen:3.5-4b", "qwen-3.5:4b", "qwen3.5:4b", "qwen2.5:4b"]
             for modelName in candidates {
                 if let cmd = try await tryGenerate(model: modelName, systemPrompt: systemPrompt, userInput: userInput) {
-                    return cmd
+                    return reconcile(cmd, userInput: userInput)
                 }
             }
         }
-        if let fallback = heuristicParse(userInput) { return fallback }
+        if let fallback = heuristicParse(userInput) { return reconcile(fallback, userInput: userInput) }
         return AIParsedCommand(type: .error, amount: nil, category: nil, contact: nil, bill: nil, text: nil, date: nil, name: nil, recurrence: nil, dueDay: nil, error: "model_unavailable")
     }
     
@@ -258,10 +259,11 @@ final class AICommandParser {
             let cat = extractAfter(t, keywords: ["on ", "for "])
             return AIParsedCommand(type: .expense, amount: number, category: cat.isEmpty ? "other" : cat, contact: nil, bill: nil, text: nil, date: nil, name: nil, recurrence: nil, dueDay: nil, error: nil)
         }
-        if t.contains("income") || t.contains("received") || t.contains("got paid") || t.contains("payment from") {
+        if t.contains("income") || t.contains("received") || t.contains("got paid") || t.contains("payment from") || t.contains("sold") || t.contains("sell") || t.contains("sale") || t.contains("refund") {
             let (isMonthlyInc, monthlyDayInc) = parseMonthly(t)
             var title = nameFromCommaPrefix(input) ?? extractAfter(t, keywords: ["from ", "for "])
             if title.isEmpty, let before = nameBeforeKeyword(input, keyword: "income") { title = before }
+            if title.isEmpty, let item = saleItemName(from: input) { title = item }
             return AIParsedCommand(type: .income, amount: number, category: nil, contact: nil, bill: nil, text: nil, date: due != nil ? isoDate(due!) : nil, name: title.isEmpty ? "Income" : title, recurrence: isMonthlyInc ? "monthly" : nil, dueDay: monthlyDayInc, error: nil)
         }
         let (isMonthly, monthlyDay) = parseMonthly(t)
@@ -285,6 +287,63 @@ final class AICommandParser {
             )
         }
         return nil
+    }
+    
+    private func reconcile(_ cmd: AIParsedCommand, userInput: String) -> AIParsedCommand {
+        let t = userInput.lowercased()
+        let isSale = t.contains("sold") || t.contains("sell") || t.contains("sale")
+        if isSale, cmd.type == .expense {
+            let name = cmd.name ?? saleItemName(from: userInput) ?? cmd.category ?? "Sale"
+            return AIParsedCommand(
+                type: .income,
+                amount: cmd.amount,
+                category: nil,
+                contact: cmd.contact,
+                bill: cmd.bill,
+                text: cmd.text,
+                date: cmd.date,
+                name: name,
+                recurrence: cmd.recurrence,
+                dueDay: cmd.dueDay,
+                error: nil
+            )
+        }
+        if t.contains("refund"), cmd.type == .expense {
+            let name = cmd.name ?? "Refund"
+            return AIParsedCommand(
+                type: .income,
+                amount: cmd.amount,
+                category: nil,
+                contact: cmd.contact,
+                bill: cmd.bill,
+                text: cmd.text,
+                date: cmd.date,
+                name: name,
+                recurrence: cmd.recurrence,
+                dueDay: cmd.dueDay,
+                error: nil
+            )
+        }
+        return cmd
+    }
+    
+    private func saleItemName(from input: String) -> String? {
+        let low = input.lowercased()
+        let keywords = ["sold ", "sell ", "sale "]
+        guard let kw = keywords.first(where: { low.contains($0) }) else { return nil }
+        guard let start = low.range(of: kw) else { return nil }
+        let tail = low[start.upperBound...]
+        let stops = [" for ", " today", " tomorrow", " on ", " in "]
+        let end = stops.compactMap { tail.range(of: $0)?.lowerBound }.min() ?? tail.endIndex
+        let raw = tail[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return nil }
+        let words = raw.split(separator: " ").map { s -> String in
+            let w = String(s)
+            if w.count <= 2 { return w.uppercased() }
+            return w.prefix(1).uppercased() + w.dropFirst()
+        }
+        let name = words.joined(separator: " ")
+        return name.isEmpty ? nil : name
     }
     
     // Prefer the largest numeric value that is NOT part of "in N days"

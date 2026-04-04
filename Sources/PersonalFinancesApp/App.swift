@@ -466,15 +466,21 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func logPayment(for id: UUID, on date: Date = Date()) {
+    func logPayment(for id: UUID, on date: Date? = nil) {
         guard let idx = bills.firstIndex(where: { $0.id == id }) else { return }
-        bills[idx].markPaid(on: date)
-        selectedBillID = nextDueBillID(excluding: id)
+        var b = bills[idx]
+        let effectiveDate = date ?? b.nextDueDate
+        b.markPaid(on: effectiveDate)
+        bills[idx] = b
+        selectedBillID = nil
     }
-    func logPayment(for id: UUID, on date: Date = Date(), customAmount: DecimalAmount) {
+    func logPayment(for id: UUID, on date: Date? = nil, customAmount: DecimalAmount) {
         guard let idx = bills.firstIndex(where: { $0.id == id }) else { return }
-        bills[idx].markPaid(on: date, amount: customAmount)
-        selectedBillID = nextDueBillID(excluding: id)
+        var b = bills[idx]
+        let effectiveDate = date ?? b.nextDueDate
+        b.markPaid(on: effectiveDate, amount: customAmount)
+        bills[idx] = b
+        selectedBillID = nil
     }
 
     func skip(for id: UUID) {
@@ -528,22 +534,25 @@ final class AppStore: ObservableObject {
         let cal = Calendar.current
         for i in bills.indices {
             if bills[i].paidAutomatically {
-                let due = cal.startOfDay(for: bills[i].nextDueDate)
+                var b = bills[i]
+                let due = cal.startOfDay(for: b.nextDueDate)
                 let upTo = cal.startOfDay(for: date)
                 if due > upTo { continue }
-                if bills[i].isPaidFor(date: bills[i].nextDueDate) { continue }
-                if bills[i].recurrence == .once {
-                    bills[i].markPaid(on: bills[i].nextDueDate)
+                if b.isPaidFor(date: b.nextDueDate) { continue }
+                if b.recurrence == .once {
+                    b.markPaid(on: b.nextDueDate)
+                    bills[i] = b
                     continue
                 }
                 var guardrail = 0
-                while cal.startOfDay(for: bills[i].nextDueDate) <= upTo && !bills[i].isPaidFor(date: bills[i].nextDueDate) {
-                    let before = bills[i].nextDueDate
-                    bills[i].markPaid(on: bills[i].nextDueDate)
-                    if bills[i].nextDueDate == before { break }
+                while cal.startOfDay(for: b.nextDueDate) <= upTo && !b.isPaidFor(date: b.nextDueDate) {
+                    let before = b.nextDueDate
+                    b.markPaid(on: b.nextDueDate)
+                    if b.nextDueDate == before { break }
                     guardrail += 1
                     if guardrail > 400 { break }
                 }
+                bills[i] = b
             }
         }
     }
@@ -560,8 +569,10 @@ final class AppStore: ObservableObject {
     }
     func logReceipt(for id: UUID, on date: Date = Date()) {
         guard let idx = incomes.firstIndex(where: { $0.id == id }) else { return }
-        incomes[idx].logReceipt(on: date)
-        selectedIncomeID = incomes[idx].id
+        var inc = incomes[idx]
+        inc.logReceipt(on: date)
+        incomes[idx] = inc
+        selectedIncomeID = inc.id
     }
     func skipIncome(for id: UUID) {
         guard let idx = incomes.firstIndex(where: { $0.id == id }) else { return }

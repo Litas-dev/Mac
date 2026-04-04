@@ -130,7 +130,7 @@ struct AICommandBarView: View {
                     .help(statusHelp())
             }
             .frame(height: 28)
-            .frame(maxWidth: 460, alignment: .leading)
+            .frame(maxWidth: 520, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
                 if suggestions.isEmpty {

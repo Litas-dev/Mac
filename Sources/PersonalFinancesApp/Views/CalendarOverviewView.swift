@@ -71,7 +71,7 @@ struct CalendarOverviewView: View {
                                     .fill(
                                         isSelected
                                         ? Color.accentColor.opacity(0.35)
-                                        : (Calendar.current.isDateInToday(date) ? Color.accentColor.opacity(0.12) : Color.clear)
+                                        : (dot == .red ? Color.red.opacity(0.22) : (Calendar.current.isDateInToday(date) ? Color.accentColor.opacity(0.12) : Color.clear))
                                     )
                             )
                         }
@@ -102,8 +102,9 @@ struct CalendarOverviewView: View {
         }
         guard !candidates.isEmpty else { return .clear }
         let daysList = candidates.map { cal.dateComponents([.day], from: cal.startOfDay(for: Date()), to: cal.startOfDay(for: $0.nextDueDate)).day ?? 0 }
-        if daysList.contains(0) { return .red }
-        if daysList.contains(where: { $0 > 0 && $0 <= 7 }) { return .yellow }
+        if daysList.contains(where: { $0 <= 0 }) { return .red }
+        let window = max(1, store.settings.reminderDays)
+        if daysList.contains(where: { $0 > 0 && $0 <= window }) { return .yellow }
         return .blue
     }
 }

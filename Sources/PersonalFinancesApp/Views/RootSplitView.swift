@@ -25,21 +25,30 @@ struct RootSplitView: View {
     @AppStorage("overviewDisplayMode") private var overviewDisplayMode: Int = 0
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding: Bool = false
     @AppStorage("settingsSelectedSection") private var settingsSelectedSection: String = "general"
+    #if DEBUG
+    @AppStorage("debugShowLayoutGrid") private var debugShowLayoutGrid: Bool = false
+    #endif
     private enum DetailScreen { case info, history, stats }
     
     #if os(macOS)
     private var activeTouchBarBill: Bill? {
-        if selectedSection == .overview, let selected = store.selectedBill {
-            return selected
+        if selectedSection == .overview {
+            return store.selectedBill
         }
-        return store.nextDueUnpaidBill
+        return nil
     }
 
     private var touchBarBezelColor: NSColor {
-        guard let b = activeTouchBarBill else { return .systemGreen }
+        guard let b = activeTouchBarBill else { return .controlColor }
         let cal = Calendar.current
         if cal.startOfDay(for: b.nextDueDate) <= cal.startOfDay(for: Date()) { return .systemRed }
         return .systemGreen
+    }
+
+    private var touchBarTitleBezelColor: NSColor {
+        if isAddSection || shouldOfferAddBillInTouchBar { return .systemBlue }
+        if activeTouchBarBill != nil { return touchBarBezelColor }
+        return touchBarMonthStatus?.color ?? .controlColor
     }
     
     private var isAddSection: Bool {
@@ -51,7 +60,6 @@ struct RootSplitView: View {
     }
     
     private var touchBarMonthStatus: (text: String, color: NSColor)? {
-        guard selectedSection == .overview else { return nil }
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let window = max(0, store.settings.reminderDays)
@@ -73,6 +81,9 @@ struct RootSplitView: View {
         if dueSoon {
             return ("This month: due soon", .systemOrange)
         }
+        if store.kpis().net < 0 {
+            return ("This month: negative after bills", .systemYellow)
+        }
         return ("This month: good", .systemGreen)
     }
     
@@ -82,7 +93,8 @@ struct RootSplitView: View {
         if selectedSection == .debts { return "Add Debt" }
         if selectedSection == .goals { return "Add Goal" }
         if shouldOfferAddBillInTouchBar { return "Add Bill" }
-        return activeTouchBarBill?.name ?? "You are on track this month"
+        if let b = activeTouchBarBill { return b.name }
+        return touchBarMonthStatus?.text ?? "You are on track this month"
     }
     
     @ViewBuilder
@@ -107,10 +119,11 @@ struct RootSplitView: View {
                 return nil
             }()
             let status = touchBarMonthStatus
+            let showMonthStatusPill = (activeTouchBarBill != nil)
             TouchBarHost(
                 title: isCloseMode ? "Close" : touchBarTitle,
                 isEnabled: isCloseMode ? true : (isAddSection || shouldOfferAddBillInTouchBar || (activeTouchBarBill != nil)),
-                bezelColor: isCloseMode ? .controlColor : ((isAddSection || shouldOfferAddBillInTouchBar) ? .systemBlue : touchBarBezelColor),
+                bezelColor: isCloseMode ? .controlColor : touchBarTitleBezelColor,
                 titleColor: isCloseMode ? .labelColor : .white,
                 onTap: {
                     if isCloseMode {
@@ -140,7 +153,7 @@ struct RootSplitView: View {
                         touchBarActionBill = b
                     }
                 },
-                monthStatusText: status?.text,
+                monthStatusText: showMonthStatusPill ? status?.text : nil,
                 monthStatusColor: status?.color,
                 onEditTap: editAction,
                 onPayTap: nil,
@@ -168,6 +181,13 @@ struct RootSplitView: View {
         } detail: {
             detailContent
         }
+        #if DEBUG
+        .overlay {
+            if debugShowLayoutGrid {
+                LayoutGridOverlay()
+            }
+        }
+        #endif
         .onChange(of: selectedSection) { newValue in
             if newValue == .reports {
                 openWindow(id: "reports")
@@ -312,7 +332,7 @@ struct RootSplitView: View {
             }
             ToolbarItem(placement: .navigation) {
                 AICommandBarView(resetToken: aiResetToken)
-                    .frame(width: 380)
+                    .frame(width: 440)
             }
         }
         .alert(placeholderTitle, isPresented: $showPlaceholderAlert) {
