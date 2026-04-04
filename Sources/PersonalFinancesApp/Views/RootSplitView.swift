@@ -216,6 +216,7 @@ struct RootSplitView: View {
                     window.toolbarStyle = .unifiedCompact
                 }
                 window.toolbar?.showsBaselineSeparator = false
+                window.toolbar = nil
             }
             NotificationManager.shared.updateDockBadge(for: store.bills, settings: store.settings)
             #endif
@@ -286,8 +287,9 @@ struct RootSplitView: View {
                 #endif
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
+        #if os(macOS)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 10) {
                 Menu {
                     Button("Add Bill…") {
                         selectedSection = .overview
@@ -313,14 +315,16 @@ struct RootSplitView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-            }
-            ToolbarItem(placement: .navigation) {
+                .menuStyle(.borderlessButton)
+                
                 AICommandBarView(resetToken: aiResetToken)
                     .frame(width: 380)
+                
+                Spacer()
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        #if os(macOS)
-        .ifAvailableToolbarBackgroundHidden()
         #endif
         .alert(placeholderTitle, isPresented: $showPlaceholderAlert) {
         } message: {
@@ -1954,16 +1958,3 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case settings = "Settings"
     var id: String { rawValue }
 }
-
-#if os(macOS)
-private extension View {
-    @ViewBuilder
-    func ifAvailableToolbarBackgroundHidden() -> some View {
-        if #available(macOS 13.0, *) {
-            self.toolbarBackground(.hidden, for: .windowToolbar)
-        } else {
-            self
-        }
-    }
-}
-#endif
