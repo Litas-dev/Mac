@@ -212,6 +212,10 @@ struct RootSplitView: View {
                 window.titleVisibility = .hidden
                 window.titlebarAppearsTransparent = true
                 window.title = ""
+                if #available(macOS 11.0, *) {
+                    window.toolbarStyle = .unifiedCompact
+                }
+                window.toolbar?.showsBaselineSeparator = false
             }
             NotificationManager.shared.updateDockBadge(for: store.bills, settings: store.settings)
             #endif
@@ -315,6 +319,9 @@ struct RootSplitView: View {
                     .frame(width: 380)
             }
         }
+        #if os(macOS)
+        .ifAvailableToolbarBackgroundHidden()
+        #endif
         .alert(placeholderTitle, isPresented: $showPlaceholderAlert) {
         } message: {
             Text("This action is not implemented yet.")
@@ -1947,3 +1954,16 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case settings = "Settings"
     var id: String { rawValue }
 }
+
+#if os(macOS)
+private extension View {
+    @ViewBuilder
+    func ifAvailableToolbarBackgroundHidden() -> some View {
+        if #available(macOS 13.0, *) {
+            self.toolbarBackground(.hidden, for: .windowToolbar)
+        } else {
+            self
+        }
+    }
+}
+#endif
