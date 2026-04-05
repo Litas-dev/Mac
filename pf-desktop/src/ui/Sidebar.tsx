@@ -9,12 +9,13 @@ export function Sidebar() {
   const groups = useMemo(() => buildSidebar(state), [state])
 
   return (
-    <aside className="sidebar">
-      <div className="brand">Kivana</div>
+    <aside className="sidebar" data-tauri-drag-region>
+      <div className="sidebarDragGutter" data-tauri-drag-region />
+      <div className="brand" data-tauri-drag-region>Kivana</div>
       <nav className="sbNav">
         {groups.map((g) => (
           <div key={g.title} className="sbGroup">
-            <div className="sbGroupTitle">{g.title}</div>
+            <div className="sbGroupTitle" data-tauri-drag-region>{g.title}</div>
             {g.items.map((item) => {
               const active = state.ui.section === item.section
               return (
@@ -35,7 +36,7 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+      <div className="sidebarDragSpacer" data-tauri-drag-region />
     </aside>
   )
 }
-

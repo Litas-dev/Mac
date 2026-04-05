@@ -7,10 +7,21 @@
 }
 
 .sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--border);
   background: rgba(24, 26, 29, 0.92);
   padding: 16px 10px;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.sidebarDragGutter {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;
 }
 
 .brand {
@@ -22,9 +33,15 @@
 }
 
 .sbNav {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: auto;
+}
+
+.sidebarDragSpacer {
+  height: 14px;
 }
 
 .sbGroupTitle {
