@@ -119,75 +119,124 @@ export function SettingsView() {
 
   return (
     <>
-      <div className="form">
-        <label className="field">
-          <div className="fieldLabel">Display currency</div>
-          <input value={settings.displayCurrencyCode} onChange={(e) => updateSettings({ displayCurrencyCode: e.target.value })} />
-        </label>
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.enableNotifications}
-            onChange={(e) => updateSettings({ enableNotifications: e.target.checked })}
-          />
-          Enable notifications
-        </label>
-
-        <label className="field">
-          <div className="fieldLabel">Reminder days</div>
-          <input
-            type="number"
-            value={settings.reminderDays}
-            onChange={(e) => updateSettings({ reminderDays: Math.max(0, Number(e.target.value)) })}
-          />
-          <div className="rowActions" style={{ marginTop: 8 }}>
-            <button type="button" onClick={() => void requestNotificationPermission()}>
-              Request notification permission
-            </button>
+      <div className="settingsPage form">
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">General</div>
           </div>
-          {notifStatus ? <div className="note">{notifStatus}</div> : null}
-        </label>
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Display currency</div>
+              <div className="settingsRowHint">Used across totals, bills, and reports.</div>
+            </div>
+            <input
+              className="settingsInput"
+              value={settings.displayCurrencyCode}
+              onChange={(e) => updateSettings({ displayCurrencyCode: e.target.value })}
+            />
+          </div>
 
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.hideAccountBalances}
-            onChange={(e) => updateSettings({ hideAccountBalances: e.target.checked })}
-          />
-          Hide account balances
-        </label>
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Dashboard style</div>
+              <div className="settingsRowHint">Choose between compact and detailed overview.</div>
+            </div>
+            <select value={settings.dashboardStyle} onChange={(e) => updateSettings({ dashboardStyle: e.target.value as any })}>
+              <option value="advanced">Advanced</option>
+              <option value="basic">Basic</option>
+            </select>
+          </div>
 
-        <div className="field">
-          <div className="fieldLabel">Dashboard style</div>
-          <select
-            value={settings.dashboardStyle}
-            onChange={(e) => updateSettings({ dashboardStyle: e.target.value as any })}
-          >
-            <option value="advanced">Advanced</option>
-            <option value="basic">Basic</option>
-          </select>
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Hide account balances</div>
+              <div className="settingsRowHint">Keeps amounts obscured across the app.</div>
+            </div>
+            <input
+              className="settingsSwitch"
+              type="checkbox"
+              checked={settings.hideAccountBalances}
+              onChange={(e) => updateSettings({ hideAccountBalances: e.target.checked })}
+            />
+          </div>
         </div>
 
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.startOnLogin}
-            onChange={(e) => updateSettings({ startOnLogin: e.target.checked })}
-          />
-          Start on login
-        </label>
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">Notifications</div>
+          </div>
 
-        <div className="field">
-          <div className="fieldLabel">Calendar</div>
-          <label className="check">
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Enable notifications</div>
+              <div className="settingsRowHint">Reminders for upcoming bills.</div>
+            </div>
             <input
+              className="settingsSwitch"
+              type="checkbox"
+              checked={settings.enableNotifications}
+              onChange={(e) => updateSettings({ enableNotifications: e.target.checked })}
+            />
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Reminder days</div>
+              <div className="settingsRowHint">How many days before the due date to remind.</div>
+            </div>
+            <input
+              className="settingsInput"
+              type="number"
+              value={settings.reminderDays}
+              onChange={(e) => updateSettings({ reminderDays: Math.max(0, Number(e.target.value)) })}
+            />
+          </div>
+
+          <div className="settingsRow settingsRowActions">
+            <div className="rowActions">
+              <button type="button" onClick={() => void requestNotificationPermission()}>
+                Request permission
+              </button>
+            </div>
+            {notifStatus ? <div className="note">{notifStatus}</div> : null}
+          </div>
+        </div>
+
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">Startup</div>
+          </div>
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Start on login</div>
+              <div className="settingsRowHint">Launch Kivana automatically when you sign in.</div>
+            </div>
+            <input
+              className="settingsSwitch"
+              type="checkbox"
+              checked={settings.startOnLogin}
+              onChange={(e) => updateSettings({ startOnLogin: e.target.checked })}
+            />
+          </div>
+        </div>
+
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">Calendar</div>
+          </div>
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Enable calendar export</div>
+              <div className="settingsRowHint">Generate an .ics file for upcoming bills.</div>
+            </div>
+            <input
+              className="settingsSwitch"
               type="checkbox"
               checked={settings.calendarSyncEnabled}
               onChange={(e) => updateSettings({ calendarSyncEnabled: e.target.checked })}
             />
-            Enable calendar export
-          </label>
+          </div>
+
           <div className="fieldRow">
             <label className="field">
               <div className="fieldLabel">Months ahead</div>
@@ -206,97 +255,142 @@ export function SettingsView() {
               />
             </label>
           </div>
-          <div className="rowActions" style={{ marginTop: 8 }}>
-            <button type="button" onClick={() => void exportCalendarIcs()} disabled={!settings.calendarSyncEnabled}>
-              Export .ics
-            </button>
-          </div>
-          {calendarStatus ? <div className="note">{calendarStatus}</div> : null}
-        </div>
 
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.preferManualForecastBalance}
-            onChange={(e) => updateSettings({ preferManualForecastBalance: e.target.checked })}
-          />
-          Prefer manual available balance for forecasts
-        </label>
-
-        <label className="field">
-          <div className="fieldLabel">Manual available balance</div>
-          <input
-            type="number"
-            value={settings.availableBalance}
-            onChange={(e) => updateSettings({ availableBalance: Number(e.target.value) })}
-          />
-        </label>
-
-        <div className="field">
-          <div className="fieldLabel">AI Provider</div>
-          <select value={aiProvider} onChange={(e) => updateSettings({ aiProvider: e.target.value as AIProvider })}>
-            <option value="local">Local (Ollama)</option>
-            <option value="external">External (Groq/OpenAI)</option>
-          </select>
-        </div>
-
-        {aiProvider === 'local' ? (
-          <>
-            <label className="field">
-              <div className="fieldLabel">Ollama Base URL</div>
-              <input value={settings.aiBaseURL} onChange={(e) => updateSettings({ aiBaseURL: e.target.value })} />
-            </label>
-            <div className="field">
-              <div className="fieldLabel">Model</div>
-              {ollamaModels && ollamaModels.length > 0 ? (
-                <select value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value })}>
-                  {ollamaModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value })} />
-              )}
-              <div className="rowActions" style={{ marginTop: 8 }}>
-                <button type="button" onClick={() => void detectOllamaModels()}>
-                  Detect models
-                </button>
-              </div>
-              {ollamaStatus ? <div className="note">{ollamaStatus}</div> : null}
+          <div className="settingsRow settingsRowActions">
+            <div className="rowActions">
+              <button type="button" onClick={() => void exportCalendarIcs()} disabled={!settings.calendarSyncEnabled}>
+                Export .ics
+              </button>
             </div>
-          </>
-        ) : (
-          <>
-            <label className="field">
-              <div className="fieldLabel">External Endpoint</div>
-              <input value={settings.aiExternalEndpoint} onChange={(e) => updateSettings({ aiExternalEndpoint: e.target.value })} />
-            </label>
-            <label className="field">
-              <div className="fieldLabel">External API Key</div>
-              <input
-                value={settings.aiExternalAPIKey ?? ''}
-                onChange={(e) => updateSettings({ aiExternalAPIKey: e.target.value || null })}
-              />
-            </label>
-          </>
-        )}
-
-        <div className="field">
-          <div className="fieldLabel">Data</div>
-          <div className="rowActions">
-            <button type="button" onClick={() => void exportBackupClick()}>
-              Export Backup (.pfbackup)
-            </button>
-            <button type="button" onClick={() => void importBackupFolderClick()}>
-              Import .pfbackup folder
-            </button>
-            <button type="button" onClick={() => void importBackupJsonClick()}>
-              Import JSON
-            </button>
+            {calendarStatus ? <div className="note">{calendarStatus}</div> : null}
           </div>
-          {dataStatus ? <div className="note">{dataStatus}</div> : null}
+        </div>
+
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">Forecast</div>
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Use manual available balance</div>
+              <div className="settingsRowHint">Overrides account totals for forecasts.</div>
+            </div>
+            <input
+              className="settingsSwitch"
+              type="checkbox"
+              checked={settings.preferManualForecastBalance}
+              onChange={(e) => updateSettings({ preferManualForecastBalance: e.target.checked })}
+            />
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Manual available balance</div>
+              <div className="settingsRowHint">Used when manual balance is enabled.</div>
+            </div>
+            <input
+              className="settingsInput"
+              type="number"
+              value={settings.availableBalance}
+              onChange={(e) => updateSettings({ availableBalance: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">AI</div>
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">AI Provider</div>
+              <div className="settingsRowHint">Local runs via Ollama. External uses an API key.</div>
+            </div>
+            <select value={aiProvider} onChange={(e) => updateSettings({ aiProvider: e.target.value as AIProvider })}>
+              <option value="local">Local (Ollama)</option>
+              <option value="external">External (Groq/OpenAI)</option>
+            </select>
+          </div>
+
+          {aiProvider === 'local' ? (
+            <>
+              <div className="settingsRow">
+                <div className="settingsRowText">
+                  <div className="settingsRowLabel">Ollama Base URL</div>
+                  <div className="settingsRowHint">Example: http://localhost:11434</div>
+                </div>
+                <input value={settings.aiBaseURL} onChange={(e) => updateSettings({ aiBaseURL: e.target.value })} />
+              </div>
+              <div className="settingsRow">
+                <div className="settingsRowText">
+                  <div className="settingsRowLabel">Model</div>
+                  <div className="settingsRowHint">Select or type a model name.</div>
+                </div>
+                {ollamaModels && ollamaModels.length > 0 ? (
+                  <select value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value })}>
+                    {ollamaModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value })} />
+                )}
+              </div>
+              <div className="settingsRow settingsRowActions">
+                <div className="rowActions">
+                  <button type="button" onClick={() => void detectOllamaModels()}>
+                    Detect models
+                  </button>
+                </div>
+                {ollamaStatus ? <div className="note">{ollamaStatus}</div> : null}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="settingsRow">
+                <div className="settingsRowText">
+                  <div className="settingsRowLabel">External Endpoint</div>
+                  <div className="settingsRowHint">Provider endpoint for chat completions.</div>
+                </div>
+                <input value={settings.aiExternalEndpoint} onChange={(e) => updateSettings({ aiExternalEndpoint: e.target.value })} />
+              </div>
+              <div className="settingsRow">
+                <div className="settingsRowText">
+                  <div className="settingsRowLabel">External API Key</div>
+                  <div className="settingsRowHint">Stored locally on this device.</div>
+                </div>
+                <input
+                  type="password"
+                  value={settings.aiExternalAPIKey ?? ''}
+                  onChange={(e) => updateSettings({ aiExternalAPIKey: e.target.value || null })}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="settingsGroup">
+          <div className="settingsGroupHeader">
+            <div className="settingsGroupTitle">Data</div>
+          </div>
+          <div className="settingsRow settingsRowActions">
+            <div className="rowActions">
+              <button type="button" onClick={() => void exportBackupClick()}>
+                Export Backup (.pfbackup)
+              </button>
+              <button type="button" onClick={() => void importBackupFolderClick()}>
+                Import .pfbackup folder
+              </button>
+              <button type="button" onClick={() => void importBackupJsonClick()}>
+                Import JSON
+              </button>
+            </div>
+            {dataStatus ? <div className="note">{dataStatus}</div> : null}
+          </div>
         </div>
       </div>
     </>
