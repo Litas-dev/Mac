@@ -959,6 +959,12 @@
   gap: 12px;
 }
 
+.settingsTabs {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+
 .settingsGroup {
   border: 1px solid var(--border);
   background: rgba(38, 41, 45, 0.55);

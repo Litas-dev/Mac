@@ -7,6 +7,7 @@ import { isTauriRuntime } from '../../storage/tauriJsonStore'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
+  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'data'>('general')
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<string>('')
   const [dataStatus, setDataStatus] = useState<string>('')
@@ -120,7 +121,31 @@ export function SettingsView() {
   return (
     <>
       <div className="settingsPage form">
-        <div className="settingsGroup">
+        <div className="settingsTabs">
+          <div className="segmented">
+            <button type="button" className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>
+              General
+            </button>
+            <button type="button" className={tab === 'notifications' ? 'active' : ''} onClick={() => setTab('notifications')}>
+              Notifications
+            </button>
+            <button type="button" className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}>
+              Calendar
+            </button>
+            <button type="button" className={tab === 'forecast' ? 'active' : ''} onClick={() => setTab('forecast')}>
+              Forecast
+            </button>
+            <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>
+              AI
+            </button>
+            <button type="button" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}>
+              Data
+            </button>
+          </div>
+        </div>
+
+        {tab === 'general' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">General</div>
           </div>
@@ -160,8 +185,10 @@ export function SettingsView() {
             />
           </div>
         </div>
+        ) : null}
 
-        <div className="settingsGroup">
+        {tab === 'notifications' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">Notifications</div>
           </div>
@@ -201,26 +228,30 @@ export function SettingsView() {
             {notifStatus ? <div className="note">{notifStatus}</div> : null}
           </div>
         </div>
+        ) : null}
 
-        <div className="settingsGroup">
-          <div className="settingsGroupHeader">
-            <div className="settingsGroupTitle">Startup</div>
-          </div>
-          <div className="settingsRow">
-            <div className="settingsRowText">
-              <div className="settingsRowLabel">Start on login</div>
-              <div className="settingsRowHint">Launch Kivana automatically when you sign in.</div>
+        {tab === 'general' ? (
+          <div className="settingsGroup">
+            <div className="settingsGroupHeader">
+              <div className="settingsGroupTitle">Startup</div>
             </div>
-            <input
-              className="settingsSwitch"
-              type="checkbox"
-              checked={settings.startOnLogin}
-              onChange={(e) => updateSettings({ startOnLogin: e.target.checked })}
-            />
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">Start on login</div>
+                <div className="settingsRowHint">Launch Kivana automatically when you sign in.</div>
+              </div>
+              <input
+                className="settingsSwitch"
+                type="checkbox"
+                checked={settings.startOnLogin}
+                onChange={(e) => updateSettings({ startOnLogin: e.target.checked })}
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
 
-        <div className="settingsGroup">
+        {tab === 'calendar' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">Calendar</div>
           </div>
@@ -265,8 +296,10 @@ export function SettingsView() {
             {calendarStatus ? <div className="note">{calendarStatus}</div> : null}
           </div>
         </div>
+        ) : null}
 
-        <div className="settingsGroup">
+        {tab === 'forecast' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">Forecast</div>
           </div>
@@ -297,8 +330,10 @@ export function SettingsView() {
             />
           </div>
         </div>
+        ) : null}
 
-        <div className="settingsGroup">
+        {tab === 'ai' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">AI</div>
           </div>
@@ -372,8 +407,10 @@ export function SettingsView() {
             </>
           )}
         </div>
+        ) : null}
 
-        <div className="settingsGroup">
+        {tab === 'data' ? (
+          <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">Data</div>
           </div>
@@ -392,6 +429,7 @@ export function SettingsView() {
             {dataStatus ? <div className="note">{dataStatus}</div> : null}
           </div>
         </div>
+        ) : null}
       </div>
     </>
   )
