@@ -35,6 +35,9 @@ function App() {
 
       <main className="main">
         <header className="topbar">
+          <div className="windowDragStrip" data-tauri-drag-region>
+            <div className="windowDragHandle" data-tauri-drag-region />
+          </div>
           <div className="appToolbar" data-tauri-drag-region>
             <button type="button" className="toolbarPlus" onClick={() => dispatch({ type: 'ui/setSection', section: 'ai' })}>
               +

@@ -107,6 +107,25 @@
   z-index: 50;
 }
 
+.windowDragStrip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  z-index: 0;
+}
+
+.windowDragHandle {
+  width: 60px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .appToolbar {
   display: grid;
   grid-template-columns: auto 1fr auto;
