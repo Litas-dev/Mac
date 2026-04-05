@@ -1,0 +1,68 @@
+import type { TransactionKind } from '../domain/models'
+
+export type AICommand =
+  | { type: 'createTransaction'; payload: { kind: TransactionKind; amount: number; currencyCode?: string; payee?: string; notes?: string } }
+  | { type: 'createBill'; payload: { name: string; amount: number; currencyCode?: string; dueDate?: string } }
+  | { type: 'createIncome'; payload: { name: string; amount: number; currencyCode?: string; nextPayDate?: string } }
+  | { type: 'unknown'; payload: { message: string } }
+
+export interface AIParseResult {
+  command: AICommand
+  raw: string
+}
+
+export function normalizeParsedCommand(x: unknown): AICommand {
+  if (!x || typeof x !== 'object') return { type: 'unknown', payload: { message: 'Invalid AI output.' } }
+  const o = x as any
+  const t = String(o.type ?? '')
+  if (t === 'createTransaction') {
+    const p = o.payload ?? {}
+    const kind = (p.kind === 'income' || p.kind === 'expense' || p.kind === 'transfer') ? p.kind : 'expense'
+    const amount = Number(p.amount ?? NaN)
+    if (!Number.isFinite(amount)) return { type: 'unknown', payload: { message: 'Missing amount.' } }
+    return {
+      type: 'createTransaction',
+      payload: {
+        kind,
+        amount,
+        currencyCode: typeof p.currencyCode === 'string' ? p.currencyCode : undefined,
+        payee: typeof p.payee === 'string' ? p.payee : undefined,
+        notes: typeof p.notes === 'string' ? p.notes : undefined,
+      },
+    }
+  }
+  if (t === 'createBill') {
+    const p = o.payload ?? {}
+    const amount = Number(p.amount ?? NaN)
+    if (!Number.isFinite(amount)) return { type: 'unknown', payload: { message: 'Missing amount.' } }
+    const name = String(p.name ?? '').trim()
+    if (!name) return { type: 'unknown', payload: { message: 'Missing bill name.' } }
+    return {
+      type: 'createBill',
+      payload: {
+        name,
+        amount,
+        currencyCode: typeof p.currencyCode === 'string' ? p.currencyCode : undefined,
+        dueDate: typeof p.dueDate === 'string' ? p.dueDate : undefined,
+      },
+    }
+  }
+  if (t === 'createIncome') {
+    const p = o.payload ?? {}
+    const amount = Number(p.amount ?? NaN)
+    if (!Number.isFinite(amount)) return { type: 'unknown', payload: { message: 'Missing amount.' } }
+    const name = String(p.name ?? '').trim()
+    if (!name) return { type: 'unknown', payload: { message: 'Missing income name.' } }
+    return {
+      type: 'createIncome',
+      payload: {
+        name,
+        amount,
+        currencyCode: typeof p.currencyCode === 'string' ? p.currencyCode : undefined,
+        nextPayDate: typeof p.nextPayDate === 'string' ? p.nextPayDate : undefined,
+      },
+    }
+  }
+  return { type: 'unknown', payload: { message: 'Unsupported command.' } }
+}
+
