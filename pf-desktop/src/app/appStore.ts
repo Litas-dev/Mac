@@ -4,6 +4,7 @@ import type { Account, Bill, Debt, Goal, Income, Transaction, UUID } from '../do
 
 export type Section =
   | 'dashboard'
+  | 'calendar'
   | 'bills'
   | 'income'
   | 'dueSoon'

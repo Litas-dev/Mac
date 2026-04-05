@@ -63,6 +63,8 @@ function titleForSection(section: string): string {
   switch (section) {
     case 'dashboard':
       return 'Overview'
+    case 'calendar':
+      return 'Calendar'
     case 'bills':
       return 'Bills'
     case 'income':

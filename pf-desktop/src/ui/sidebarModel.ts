@@ -15,6 +15,7 @@ export interface SidebarItem {
 
 export type SidebarIcon =
   | 'overview'
+  | 'calendar'
   | 'income'
   | 'dueSoon'
   | 'deferred'
@@ -33,6 +34,7 @@ export function buildSidebar(state: AppState): SidebarGroup[] {
 
   const billsItems: SidebarItem[] = [
     { section: 'dashboard', title: 'Overview', subtitle: overviewSubtitle(state, now), icon: 'overview' },
+    { section: 'calendar', title: 'Calendar', subtitle: calendarSubtitle(state, now), icon: 'calendar' },
     { section: 'income', title: 'Income', subtitle: incomeSubtitle(state), icon: 'income' },
   ]
   if (advanced) {
@@ -74,6 +76,26 @@ export function buildSidebar(state: AppState): SidebarGroup[] {
     { title: 'Reports', items: [{ section: 'reports', title: 'Reports', icon: 'reports' }] },
     { title: 'Settings', items: [{ section: 'settings', title: 'Settings', icon: 'settings' }, { section: 'ai', title: 'AI', icon: 'ai' }] },
   ]
+}
+
+function calendarSubtitle(state: AppState, now: Date): string {
+  const start = startOfDay(now)
+  const cutoff = addDays(start, 30)
+  const upcomingBills = state.bills.filter((b) => {
+    if (b.hiddenUntilEdited) return false
+    if (billIsSnoozedActive(b, now)) return false
+    if (billIsPaidFor(b, b.nextDueDate)) return false
+    const due = startOfDay(b.nextDueDate)
+    return due.getTime() >= start.getTime() && due.getTime() <= cutoff.getTime()
+  }).length
+  const upcomingIncome = state.incomes.filter((i) => {
+    const d = startOfDay(i.nextPayDate)
+    return d.getTime() >= start.getTime() && d.getTime() <= cutoff.getTime()
+  }).length
+  const total = upcomingBills + upcomingIncome
+  if (total === 0) return 'No events'
+  if (total === 1) return '1 event'
+  return `${total} events`
 }
 
 function overviewSubtitle(state: AppState, now: Date): string {

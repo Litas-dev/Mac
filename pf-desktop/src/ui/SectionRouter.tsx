@@ -1,4 +1,5 @@
 import { DashboardView } from './sections/DashboardView'
+import { CalendarView } from './sections/CalendarView'
 import { BillsView } from './sections/BillsView'
 import { IncomeView } from './sections/IncomeView'
 import { DueSoonView } from './sections/DueSoonView'
@@ -18,6 +19,8 @@ export function SectionRouter() {
   switch (state.ui.section) {
     case 'dashboard':
       return <DashboardView />
+    case 'calendar':
+      return <CalendarView />
     case 'bills':
       return <BillsView />
     case 'income':

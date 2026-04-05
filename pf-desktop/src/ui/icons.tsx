@@ -14,6 +14,8 @@ export function SidebarIconView(props: { icon: SidebarIcon; dueSeverity?: DueSev
   switch (props.icon) {
     case 'overview':
       return <IconBox color={color}><ListIcon /></IconBox>
+    case 'calendar':
+      return <IconBox color={color}><CalendarIcon /></IconBox>
     case 'income':
       return <IconBox color={color}><ArrowDownIcon /></IconBox>
     case 'dueSoon':
@@ -73,6 +75,23 @@ function ArrowDownIcon() {
     <Svg>
       <path d="M12 3v14" />
       <path d="M7 12l5 5 5-5" />
+    </Svg>
+  )
+}
+
+function CalendarIcon() {
+  return (
+    <Svg>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4" />
+      <path d="M8 3v4" />
+      <path d="M3 10h18" />
+      <path d="M7 14h.01" />
+      <path d="M12 14h.01" />
+      <path d="M17 14h.01" />
+      <path d="M7 18h.01" />
+      <path d="M12 18h.01" />
+      <path d="M17 18h.01" />
     </Svg>
   )
 }
