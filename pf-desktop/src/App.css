@@ -107,11 +107,6 @@
   z-index: 50;
 }
 
-.dragRegion {
-  position: absolute;
-  inset: 0;
-}
-
 .appToolbar {
   display: grid;
   grid-template-columns: auto 1fr auto;
