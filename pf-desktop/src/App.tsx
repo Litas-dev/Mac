@@ -8,6 +8,7 @@ import { registerMenuEvents } from './ui/menuEvents'
 import { registerTouchBarEvents } from './ui/touchbarEvents'
 import { Sidebar } from './ui/Sidebar'
 import { CommandBar } from './ui/CommandBar'
+import { UpdateWatcher } from './ui/UpdateWatcher'
 
 function App() {
   const store = useAppStore()
@@ -31,6 +32,7 @@ function App() {
   return (
     <div className="shell">
       <OnboardingModal />
+      <UpdateWatcher />
       <Sidebar />
 
       <main className="main">
