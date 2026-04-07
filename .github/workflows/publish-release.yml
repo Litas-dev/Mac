@@ -1,6 +1,6 @@
 name: Publish Release Artifacts
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       tag:
@@ -149,4 +149,3 @@ jobs:
             latest.json \
             out/macos/* \
             out/windows/*
-
