@@ -30,28 +30,43 @@ jobs:
       - name: Install dependencies
         run: npm -C pf-desktop ci
 
-      - name: Prepare Tauri signing key
+      - name: Validate Tauri signing key
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY_SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          KEY_FILE="$RUNNER_TEMP/tauri-signing.key"
-          export KEY_FILE
           python3 - <<'PY'
-          import os, sys
-          s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "")
+          import base64, os, sys
+          s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "").strip()
           if not s:
-              print("missing TAURI_SIGNING_PRIVATE_KEY secret", file=sys.stderr)
+              print("Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY", file=sys.stderr)
               sys.exit(1)
-          out = os.environ["KEY_FILE"]
-          with open(out, "w", encoding="utf-8", newline="\n") as f:
-              f.write(s)
+
+          try:
+              decoded = base64.b64decode(s, validate=True)
+          except Exception:
+              print(
+                  "Invalid TAURI_SIGNING_PRIVATE_KEY: expected base64 string from `tauri signer generate` (.key file contents).",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          try:
+              decoded.decode("utf-8")
+          except Exception:
+              print(
+                  "Invalid TAURI_SIGNING_PRIVATE_KEY: base64 decoded content is not valid UTF-8. Regenerate with `tauri signer generate` and set the secret to the .key file contents.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print("OK")
           PY
-          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Build (macOS)
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm -C pf-desktop run tauri:build
 
@@ -85,28 +100,43 @@ jobs:
       - name: Install dependencies
         run: npm -C pf-desktop ci
 
-      - name: Prepare Tauri signing key
+      - name: Validate Tauri signing key
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY_SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          KEY_FILE="$RUNNER_TEMP/tauri-signing.key"
-          export KEY_FILE
           python3 - <<'PY'
-          import os, sys
-          s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "")
+          import base64, os, sys
+          s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "").strip()
           if not s:
-              print("missing TAURI_SIGNING_PRIVATE_KEY secret", file=sys.stderr)
+              print("Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY", file=sys.stderr)
               sys.exit(1)
-          out = os.environ["KEY_FILE"]
-          with open(out, "w", encoding="utf-8", newline="\n") as f:
-              f.write(s)
+
+          try:
+              decoded = base64.b64decode(s, validate=True)
+          except Exception:
+              print(
+                  "Invalid TAURI_SIGNING_PRIVATE_KEY: expected base64 string from `tauri signer generate` (.key file contents).",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          try:
+              decoded.decode("utf-8")
+          except Exception:
+              print(
+                  "Invalid TAURI_SIGNING_PRIVATE_KEY: base64 decoded content is not valid UTF-8. Regenerate with `tauri signer generate` and set the secret to the .key file contents.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print("OK")
           PY
-          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Build (Windows MSI)
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm -C pf-desktop run tauri:build -- --config src-tauri/tauri.windows.conf.json
 
