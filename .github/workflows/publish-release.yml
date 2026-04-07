@@ -39,21 +39,14 @@ jobs:
           KEY_FILE="$RUNNER_TEMP/tauri-signing.key"
           export KEY_FILE
           python3 - <<'PY'
-          import os, base64, sys
+          import os, sys
           s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "")
           if not s:
               print("missing TAURI_SIGNING_PRIVATE_KEY secret", file=sys.stderr)
               sys.exit(1)
           out = os.environ["KEY_FILE"]
-          try:
-              data = base64.b64decode("".join(s.splitlines()), validate=True)
-              with open(out, "wb") as f:
-                  f.write(data)
-              print("decoded_base64")
-          except Exception:
-              with open(out, "wb") as f:
-                  f.write(s.encode("utf-8"))
-              print("raw_utf8")
+          with open(out, "w", encoding="utf-8", newline="\n") as f:
+              f.write(s)
           PY
           echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
@@ -101,21 +94,14 @@ jobs:
           KEY_FILE="$RUNNER_TEMP/tauri-signing.key"
           export KEY_FILE
           python3 - <<'PY'
-          import os, base64, sys
+          import os, sys
           s = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_SECRET", "")
           if not s:
               print("missing TAURI_SIGNING_PRIVATE_KEY secret", file=sys.stderr)
               sys.exit(1)
           out = os.environ["KEY_FILE"]
-          try:
-              data = base64.b64decode("".join(s.splitlines()), validate=True)
-              with open(out, "wb") as f:
-                  f.write(data)
-              print("decoded_base64")
-          except Exception:
-              with open(out, "wb") as f:
-                  f.write(s.encode("utf-8"))
-              print("raw_utf8")
+          with open(out, "w", encoding="utf-8", newline="\n") as f:
+              f.write(s)
           PY
           echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
