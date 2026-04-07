@@ -1,0 +1,152 @@
+name: Publish Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish (example: v0.1.3)
+        required: true
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  RELEASES_REPO: Litas-dev/Kivana
+
+jobs:
+  build_macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: pf-desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm -C pf-desktop ci
+
+      - name: Build (macOS)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm -C pf-desktop run tauri:build
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/macos
+          cp pf-desktop/src-tauri/target/release/bundle/dmg/*.dmg out/macos/
+          cp pf-desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz out/macos/
+          cp pf-desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig out/macos/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/macos/*
+
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: pf-desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm -C pf-desktop ci
+
+      - name: Build (Windows MSI)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm -C pf-desktop run tauri:build -- --config src-tauri/tauri.windows.conf.json
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/windows | Out-Null
+          Copy-Item -Force pf-desktop/src-tauri/target/release/bundle/msi/*.msi out/windows/
+          Copy-Item -Force pf-desktop/src-tauri/target/release/bundle/msi/*.msi.sig out/windows/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/windows/*
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build_macos, build_windows]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: out/macos
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: out/windows
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAC_BUNDLE="$(ls -1 out/macos/*.app.tar.gz | head -n 1)"
+          MAC_SIG="$(ls -1 out/macos/*.app.tar.gz.sig | head -n 1)"
+          MSI_BUNDLE="$(ls -1 out/windows/*.msi | head -n 1)"
+          MSI_SIG="$(ls -1 out/windows/*.msi.sig | head -n 1)"
+          node pf-desktop/scripts/generate-latest-json.mjs \
+            --tag "${{ steps.tag.outputs.value }}" \
+            --repo "${RELEASES_REPO}" \
+            --mac "${MAC_BUNDLE}" --mac-sig "${MAC_SIG}" \
+            --msi "${MSI_BUNDLE}" --msi-sig "${MSI_SIG}" \
+            --out latest.json
+
+      - name: Create/update release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.KIVANA_RELEASES_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.value }}"
+          if gh release view "$TAG" --repo "${RELEASES_REPO}" >/dev/null 2>&1; then
+            echo "Release exists: ${RELEASES_REPO} $TAG"
+          else
+            gh release create "$TAG" --repo "${RELEASES_REPO}" --title "$TAG" --notes ""
+          fi
+
+          gh release upload "$TAG" --repo "${RELEASES_REPO}" --clobber \
+            latest.json \
+            out/macos/* \
+            out/windows/*
+
