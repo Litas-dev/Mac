@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "autostart:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
     "updater:default"
   ]
 }
