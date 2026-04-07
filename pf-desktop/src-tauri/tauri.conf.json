@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Kivana",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "com.personal.PersonalFinances",
   "build": {
     "frontendDist": "../dist",
@@ -45,7 +45,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5Q0Y0RjlGRTYzOUJFOTcKUldTWHZqbm1uMC9QU2Nnc0p0SWQ5MDFMa09ReEhWa3J0MWxaNE5QSGswVnhWSUNkalpyTzBkZzEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM1RThFRUZCMzFENUZBQjQKUldTMCt0VXgrKzdveFk4SEMxYUpjUzlHQXU2WWovNWlNb0d3dExXblBrc3NpU1cvZk1VMzBEcnIK",
       "endpoints": [
         "https://github.com/Litas-dev/Kivana/releases/latest/download/latest.json"
       ],
