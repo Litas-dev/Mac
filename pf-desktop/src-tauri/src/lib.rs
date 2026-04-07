@@ -13,6 +13,7 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+    .plugin(tauri_plugin_updater::Builder::new().build())
     .menu(|app| build_menu(app))
     .setup(|app| {
       let _ = build_tray(app.handle());

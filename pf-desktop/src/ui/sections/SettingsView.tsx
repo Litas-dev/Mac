@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
 import type { AIProvider, AppSettings } from '../../domain/settings'
 import { exportBackup, importBackupFromFolder, importBackupFromJson } from '../dataActions'
@@ -7,14 +7,22 @@ import { isTauriRuntime } from '../../storage/tauriJsonStore'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
-  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'data'>('general')
+  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'data' | 'updates'>('general')
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<string>('')
   const [dataStatus, setDataStatus] = useState<string>('')
   const [notifStatus, setNotifStatus] = useState<string>('')
   const [calendarStatus, setCalendarStatus] = useState<string>('')
+  const [updateStatus, setUpdateStatus] = useState<string>('')
+  const [updateInfo, setUpdateInfo] = useState<any>(null)
+  const [currentVersion, setCurrentVersion] = useState<string>('—')
 
   const settings = state.settings
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void import('@tauri-apps/api/app').then(({ getVersion }) => getVersion().then(setCurrentVersion)).catch(() => {})
+  }, [])
 
   function updateSettings(patch: Partial<AppSettings>) {
     dispatch({
@@ -118,6 +126,38 @@ export function SettingsView() {
     setCalendarStatus('Exported calendar .ics.')
   }
 
+  async function checkForUpdatesClick() {
+    setUpdateStatus('')
+    setUpdateInfo(null)
+    if (!isTauriRuntime()) {
+      setUpdateStatus('Desktop only.')
+      return
+    }
+    try {
+      const { check } = await import('@tauri-apps/plugin-updater')
+      const update = await check()
+      if (!update) {
+        setUpdateStatus('You are up to date.')
+        return
+      }
+      setUpdateInfo(update)
+      setUpdateStatus(`Update available: ${update.version}`)
+    } catch (e: any) {
+      setUpdateStatus(`Update check failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function downloadAndInstallUpdateClick() {
+    if (!updateInfo) return
+    setUpdateStatus('Downloading…')
+    try {
+      await updateInfo.downloadAndInstall()
+      setUpdateStatus('Update installed. Restart the app to finish.')
+    } catch (e: any) {
+      setUpdateStatus(`Update failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
   return (
     <>
       <div className="settingsPage form">
@@ -140,6 +180,9 @@ export function SettingsView() {
             </button>
             <button type="button" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}>
               Data
+            </button>
+            <button type="button" className={tab === 'updates' ? 'active' : ''} onClick={() => setTab('updates')}>
+              Updates
             </button>
           </div>
         </div>
@@ -429,6 +472,35 @@ export function SettingsView() {
             {dataStatus ? <div className="note">{dataStatus}</div> : null}
           </div>
         </div>
+        ) : null}
+
+        {tab === 'updates' ? (
+          <div className="settingsGroup">
+            <div className="settingsGroupHeader">
+              <div className="settingsGroupTitle">Updates</div>
+            </div>
+
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">Current version</div>
+                <div className="settingsRowHint">Updates are fetched from GitHub Releases.</div>
+              </div>
+              <div className="settingsRowLabel">{currentVersion}</div>
+            </div>
+
+            <div className="settingsRow settingsRowActions">
+              <div className="rowActions">
+                <button type="button" onClick={() => void checkForUpdatesClick()}>
+                  Check for updates
+                </button>
+                <button type="button" onClick={() => void downloadAndInstallUpdateClick()} disabled={!updateInfo}>
+                  Download & install
+                </button>
+              </div>
+              {updateStatus ? <div className="note">{updateStatus}</div> : null}
+              {updateInfo?.body ? <div className="note">{String(updateInfo.body)}</div> : null}
+            </div>
+          </div>
         ) : null}
       </div>
     </>
