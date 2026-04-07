@@ -1,10 +1,10 @@
 name: Publish Release Artifacts
 
-"on":
+on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish (example: v0.1.3)
+        description: "Tag to publish (example: v0.1.3)"
         required: true
   push:
     tags:
