@@ -25,14 +25,48 @@ export function SettingsView() {
   }, [])
 
   function updateSettings(patch: Partial<AppSettings>) {
+    const nextSettings: AppSettings = { ...settings, ...patch }
+    const oldCode = settings.displayCurrencyCode
+    const newCode = nextSettings.displayCurrencyCode
+    const shouldRelabel = Boolean(patch.displayCurrencyCode) && oldCode !== newCode
+
+    const bills = shouldRelabel
+      ? state.bills.map((b) => ({
+          ...b,
+          amount: b.amount.currencyCode === oldCode ? { ...b.amount, currencyCode: newCode } : b.amount,
+          payments: (b.payments ?? []).map((p) => ({
+            ...p,
+            amount: p.amount.currencyCode === oldCode ? { ...p.amount, currencyCode: newCode } : p.amount,
+          })),
+        }))
+      : state.bills
+
+    const incomes = shouldRelabel
+      ? state.incomes.map((i) => ({
+          ...i,
+          amount: i.amount.currencyCode === oldCode ? { ...i.amount, currencyCode: newCode } : i.amount,
+          receipts: (i.receipts ?? []).map((r) => ({
+            ...r,
+            amount: r.amount.currencyCode === oldCode ? { ...r.amount, currencyCode: newCode } : r.amount,
+          })),
+        }))
+      : state.incomes
+
+    const transactions = shouldRelabel
+      ? state.transactions.map((t) => ({
+          ...t,
+          amount: t.amount.currencyCode === oldCode ? { ...t.amount, currencyCode: newCode } : t.amount,
+        }))
+      : state.transactions
+
     dispatch({
       type: 'data/replaceAll',
       data: {
-        settings: { ...settings, ...patch },
-        bills: state.bills,
-        incomes: state.incomes,
+        settings: nextSettings,
+        bills,
+        incomes,
         accounts: state.accounts,
-        transactions: state.transactions,
+        transactions,
         goals: state.goals,
         debts: state.debts,
       },
@@ -98,6 +132,24 @@ export function SettingsView() {
     setDataStatus('')
     const msg = await importBackupFromFolder(dispatch)
     setDataStatus(msg)
+  }
+
+  async function clearAllDataClick() {
+    setDataStatus('')
+    if (!window.confirm('This will permanently delete ALL your data (bills, income, accounts, transactions, goals, debts, attachments). Continue?')) return
+    if (!window.confirm('Are you absolutely sure? This cannot be undone.')) return
+    try {
+      localStorage.removeItem('Kivana/didCompleteOnboarding')
+      if (isTauriRuntime()) {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('reset_all_data')
+      } else {
+        localStorage.clear()
+      }
+      window.location.reload()
+    } catch (e: any) {
+      setDataStatus(`Failed to clear data: ${String(e?.message ?? e)}`)
+    }
   }
 
   async function requestNotificationPermission() {
@@ -197,11 +249,15 @@ export function SettingsView() {
               <div className="settingsRowLabel">Display currency</div>
               <div className="settingsRowHint">Used across totals, bills, and reports.</div>
             </div>
-            <input
-              className="settingsInput"
-              value={settings.displayCurrencyCode}
-              onChange={(e) => updateSettings({ displayCurrencyCode: e.target.value })}
-            />
+            <select value={settings.displayCurrencyCode} onChange={(e) => updateSettings({ displayCurrencyCode: e.target.value })}>
+              <option value="NOK">NOK</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="USD">USD</option>
+              <option value="SEK">SEK</option>
+              <option value="DKK">DKK</option>
+              <option value="PLN">PLN</option>
+            </select>
           </div>
 
           <div className="settingsRow">
@@ -467,6 +523,9 @@ export function SettingsView() {
               </button>
               <button type="button" onClick={() => void importBackupJsonClick()}>
                 Import JSON
+              </button>
+              <button type="button" onClick={() => void clearAllDataClick()} className="btnDanger">
+                Clear all data
               </button>
             </div>
             {dataStatus ? <div className="note">{dataStatus}</div> : null}

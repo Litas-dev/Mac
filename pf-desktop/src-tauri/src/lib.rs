@@ -56,7 +56,10 @@ pub fn run() {
       save_bill_attachment,
       delete_bill_attachment,
       delete_all_attachments,
+      reset_all_data,
       export_backup,
+      export_csv,
+      export_pdf,
       export_calendar_ics,
       read_backup_source,
       restore_attachments_from
@@ -368,6 +371,16 @@ fn delete_all_attachments(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn reset_all_data(app: tauri::AppHandle) -> Result<(), String> {
+  let root = data_root(&app)?;
+  if root.exists() {
+    std::fs::remove_dir_all(&root).map_err(|e| e.to_string())?;
+  }
+  std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
 fn export_backup(
   app: tauri::AppHandle,
   bundle_dir_path: String,
@@ -428,6 +441,80 @@ fn export_calendar_ics(destination_path: String, ics_content: String) -> Result<
   }
   let p = std::path::PathBuf::from(destination_path);
   std::fs::write(&p, ics_content.as_bytes()).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+fn export_csv(destination_path: String, csv_content: String) -> Result<(), String> {
+  if !is_absolute_path(&destination_path) {
+    return Err("destination_path must be absolute".to_string());
+  }
+  if !destination_path.to_lowercase().ends_with(".csv") {
+    return Err("destination_path must end with .csv".to_string());
+  }
+  let dest = std::path::PathBuf::from(&destination_path);
+  let parent = dest
+    .parent()
+    .ok_or_else(|| "destination_path must have a parent directory".to_string())?;
+  std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+
+  let file_name = dest
+    .file_name()
+    .ok_or_else(|| "destination_path must have a file name".to_string())?
+    .to_string_lossy()
+    .to_string();
+  let tmp_name = format!(
+    "{}.tmp-{}-{}",
+    file_name,
+    std::process::id(),
+    std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map_err(|e| e.to_string())?
+      .as_millis()
+  );
+  let tmp_path = parent.join(tmp_name);
+  std::fs::write(&tmp_path, csv_content.as_bytes()).map_err(|e| e.to_string())?;
+  if dest.exists() {
+    let _ = std::fs::remove_file(&dest);
+  }
+  std::fs::rename(&tmp_path, &dest).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+fn export_pdf(destination_path: String, pdf_content: Vec<u8>) -> Result<(), String> {
+  if !is_absolute_path(&destination_path) {
+    return Err("destination_path must be absolute".to_string());
+  }
+  if !destination_path.to_lowercase().ends_with(".pdf") {
+    return Err("destination_path must end with .pdf".to_string());
+  }
+  let dest = std::path::PathBuf::from(&destination_path);
+  let parent = dest
+    .parent()
+    .ok_or_else(|| "destination_path must have a parent directory".to_string())?;
+  std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+
+  let file_name = dest
+    .file_name()
+    .ok_or_else(|| "destination_path must have a file name".to_string())?
+    .to_string_lossy()
+    .to_string();
+  let tmp_name = format!(
+    "{}.tmp-{}-{}",
+    file_name,
+    std::process::id(),
+    std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map_err(|e| e.to_string())?
+      .as_millis()
+  );
+  let tmp_path = parent.join(tmp_name);
+  std::fs::write(&tmp_path, &pdf_content).map_err(|e| e.to_string())?;
+  if dest.exists() {
+    let _ = std::fs::remove_file(&dest);
+  }
+  std::fs::rename(&tmp_path, &dest).map_err(|e| e.to_string())?;
   Ok(())
 }
 

@@ -32,7 +32,9 @@ export function DueSoonView() {
   }
 
   function markPaid(id: string) {
-    dispatch({ type: 'bills/logPayment', id, date: new Date() })
+    const bill = state.bills.find((b) => b.id === id)
+    if (!bill) return
+    dispatch({ type: 'bills/logPayment', id, date: bill.nextDueDate })
   }
 
   function snooze7(id: string) {

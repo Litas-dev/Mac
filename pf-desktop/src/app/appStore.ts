@@ -15,7 +15,6 @@ export type Section =
   | 'goals'
   | 'debts'
   | 'reports'
-  | 'ai'
   | 'settings'
 
 export interface UIState {

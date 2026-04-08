@@ -52,9 +52,8 @@ export interface AppSettings {
 }
 
 export function defaultSettings(): AppSettings {
-  const localeCurrency = Intl.NumberFormat().resolvedOptions().currency
   return {
-    displayCurrencyCode: localeCurrency ?? 'USD',
+    displayCurrencyCode: 'NOK',
     enableNotifications: true,
     reminderDays: 7,
     startOnLogin: false,
@@ -146,4 +145,3 @@ function isBillCategory(x: string): x is BillCategory {
     x === 'other'
   )
 }
-

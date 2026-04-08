@@ -11,6 +11,12 @@
     "autostart:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
     "updater:default"
   ]
 }

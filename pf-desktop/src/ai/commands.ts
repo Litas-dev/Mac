@@ -1,8 +1,25 @@
-import type { TransactionKind } from '../domain/models'
+import type { BillCategory, TransactionKind } from '../domain/models'
+
+const BILL_CATEGORIES: BillCategory[] = ['housing', 'utilities', 'subscriptions', 'insurance', 'taxes', 'transport', 'other']
+
+function isBillCategory(x: unknown): x is BillCategory {
+  return typeof x === 'string' && (BILL_CATEGORIES as string[]).includes(x)
+}
 
 export type AICommand =
-  | { type: 'createTransaction'; payload: { kind: TransactionKind; amount: number; currencyCode?: string; payee?: string; notes?: string } }
-  | { type: 'createBill'; payload: { name: string; amount: number; currencyCode?: string; dueDate?: string } }
+  | {
+      type: 'createTransaction'
+      payload: {
+        kind: TransactionKind
+        amount: number
+        currencyCode?: string
+        payee?: string
+        notes?: string
+        category?: BillCategory
+        customCategoryName?: string
+      }
+    }
+  | { type: 'createBill'; payload: { name: string; amount: number; currencyCode?: string; dueDate?: string; category?: BillCategory; customCategoryName?: string } }
   | { type: 'createIncome'; payload: { name: string; amount: number; currencyCode?: string; nextPayDate?: string } }
   | { type: 'unknown'; payload: { message: string } }
 
@@ -28,6 +45,8 @@ export function normalizeParsedCommand(x: unknown): AICommand {
         currencyCode: typeof p.currencyCode === 'string' ? p.currencyCode : undefined,
         payee: typeof p.payee === 'string' ? p.payee : undefined,
         notes: typeof p.notes === 'string' ? p.notes : undefined,
+        category: isBillCategory(p.category) ? p.category : undefined,
+        customCategoryName: typeof p.customCategoryName === 'string' ? p.customCategoryName.trim() || undefined : undefined,
       },
     }
   }
@@ -44,6 +63,8 @@ export function normalizeParsedCommand(x: unknown): AICommand {
         amount,
         currencyCode: typeof p.currencyCode === 'string' ? p.currencyCode : undefined,
         dueDate: typeof p.dueDate === 'string' ? p.dueDate : undefined,
+        category: isBillCategory(p.category) ? p.category : undefined,
+        customCategoryName: typeof p.customCategoryName === 'string' ? p.customCategoryName.trim() || undefined : undefined,
       },
     }
   }
@@ -65,4 +86,3 @@ export function normalizeParsedCommand(x: unknown): AICommand {
   }
   return { type: 'unknown', payload: { message: 'Unsupported command.' } }
 }
-

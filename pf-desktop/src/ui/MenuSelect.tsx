@@ -13,6 +13,7 @@ export function MenuSelect<T extends string>(props: {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
 
   const selectedLabel = useMemo(() => {
     const found = props.options.find((o) => o.value === props.value)
@@ -29,7 +30,38 @@ export function MenuSelect<T extends string>(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  function openMenu() {
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node | null
+      if (!target) return
+      const btn = buttonRef.current
+      const panel = panelRef.current
+      if (btn?.contains(target)) return
+      if (panel?.contains(target)) return
+      setOpen(false)
+    }
+    function onScroll(e: Event) {
+      const target = e.target as Node | null
+      const panel = panelRef.current
+      if (target && panel?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [open])
+
+  function toggleMenu() {
+    if (open) {
+      setOpen(false)
+      return
+    }
     const el = buttonRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
@@ -39,14 +71,13 @@ export function MenuSelect<T extends string>(props: {
 
   return (
     <>
-      <button type="button" className="menuButton" onClick={openMenu} ref={buttonRef}>
+      <button type="button" className="menuButton" onClick={toggleMenu} ref={buttonRef}>
         {props.label ? `${props.label}: ` : ''}
         {selectedLabel}
         <span className="menuChevron">▾</span>
       </button>
-      {open ? <div className="menuOverlay" onClick={() => setOpen(false)} /> : null}
       {open && pos ? (
-        <div className="menuPanel" style={{ left: pos.left, top: pos.top, width: pos.width }}>
+        <div className="menuPanel" style={{ left: pos.left, top: pos.top, width: pos.width }} ref={panelRef}>
           {props.options.map((o) => (
             <button
               key={o.value}

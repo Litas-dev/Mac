@@ -41,9 +41,6 @@ function App() {
             <div className="windowDragHandle" data-tauri-drag-region />
           </div>
           <div className="appToolbar" data-tauri-drag-region>
-            <button type="button" className="toolbarPlus" onClick={() => dispatch({ type: 'ui/setSection', section: 'ai' })}>
-              +
-            </button>
             <CommandBar />
             <div className="toolbarRight">
               <div className="toolbarTitle">{titleForSection(state.ui.section)}</div>
@@ -89,8 +86,6 @@ function titleForSection(section: string): string {
       return 'Reports'
     case 'settings':
       return 'Settings'
-    case 'ai':
-      return 'AI'
     default:
       return 'Kivana'
   }

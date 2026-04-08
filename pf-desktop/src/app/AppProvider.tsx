@@ -11,7 +11,9 @@ import {
   billSetSnooze,
   incomeLogReceipt,
   processAutoPayments,
+  startOfDay,
 } from '../domain/models'
+import type { Transaction } from '../domain/models'
 import { scheduleAllNotifications } from '../notifications/notificationScheduler'
 import { applyAutostart } from '../desktop/autostart'
 
@@ -86,10 +88,44 @@ function reducer(state: AppState, action: AppAction): AppState {
       const idx = state.bills.findIndex((b) => b.id === action.id)
       if (idx < 0) return state
       const b = state.bills[idx]
-      const updated = billMarkPaid(b, action.date ?? b.nextDueDate)
+      const paidOn = action.date ?? b.nextDueDate
+      const target = startOfDay(b.nextDueDate)
+      const payDay = startOfDay(paidOn)
+      let effectivePaidOn = paidOn
+      if (b.recurrence !== 'once') {
+        const prevDue = startOfDay(advanceRecurrence(b.recurrence, b.nextDueDate, -1))
+        if (payDay.getTime() <= prevDue.getTime()) return state
+        if (payDay.getTime() > target.getTime()) effectivePaidOn = b.nextDueDate
+      }
+
+      const updated = billMarkPaid(b, effectivePaidOn)
       const nextBills = [...state.bills]
       nextBills[idx] = updated
-      return { ...state, bills: nextBills, ui: { ...state.ui, selectedBillId: null } }
+      const didAddPayment = updated.payments.length > b.payments.length
+      if (!didAddPayment) return { ...state, bills: nextBills, ui: { ...state.ui, selectedBillId: null } }
+
+      const tx: Transaction = {
+        id: crypto.randomUUID(),
+        kind: 'expense',
+        date: effectivePaidOn,
+        amount: { currencyCode: b.amount.currencyCode, value: Math.abs(b.amount.value) },
+        accountId: state.accounts.find((a) => !a.archived)?.id ?? null,
+        toAccountId: null,
+        category: 'other',
+        customCategoryName: null,
+        payee: b.name,
+        notes: null,
+        tags: ['bill'],
+        relatedBillId: b.id,
+        relatedIncomeId: null,
+      }
+
+      const nextUI: AppState['ui'] =
+        state.ui.section === 'bills'
+          ? { ...state.ui, section: 'transactions', selectedBillId: null, selectedTransactionId: tx.id }
+          : { ...state.ui, selectedBillId: null, selectedTransactionId: tx.id }
+
+      return { ...state, bills: nextBills, transactions: [...state.transactions, tx], ui: nextUI }
     }
     case 'bills/skip': {
       const idx = state.bills.findIndex((b) => b.id === action.id)
@@ -146,10 +182,35 @@ function reducer(state: AppState, action: AppAction): AppState {
       const idx = state.incomes.findIndex((i) => i.id === action.id)
       if (idx < 0) return state
       const inc = state.incomes[idx]
-      const updated = incomeLogReceipt(inc, action.date ?? new Date())
+      const receivedOn = action.date ?? new Date()
+      const updated = incomeLogReceipt(inc, receivedOn)
       const nextIncomes = [...state.incomes]
       nextIncomes[idx] = updated
-      return { ...state, incomes: nextIncomes, ui: { ...state.ui, selectedIncomeId: updated.id } }
+      const didAddReceipt = updated.receipts.length > inc.receipts.length
+      if (!didAddReceipt) return { ...state, incomes: nextIncomes, ui: { ...state.ui, selectedIncomeId: updated.id } }
+
+      const tx: Transaction = {
+        id: crypto.randomUUID(),
+        kind: 'income',
+        date: receivedOn,
+        amount: { currencyCode: inc.amount.currencyCode, value: Math.abs(inc.amount.value) },
+        accountId: state.accounts.find((a) => !a.archived)?.id ?? null,
+        toAccountId: null,
+        category: null,
+        customCategoryName: null,
+        payee: inc.name,
+        notes: null,
+        tags: ['income'],
+        relatedBillId: null,
+        relatedIncomeId: inc.id,
+      }
+
+      const nextUI: AppState['ui'] =
+        state.ui.section === 'income'
+          ? { ...state.ui, section: 'transactions', selectedIncomeId: updated.id, selectedTransactionId: tx.id }
+          : { ...state.ui, selectedIncomeId: updated.id, selectedTransactionId: tx.id }
+
+      return { ...state, incomes: nextIncomes, transactions: [...state.transactions, tx], ui: nextUI }
     }
     case 'incomes/skip': {
       const idx = state.incomes.findIndex((i) => i.id === action.id)

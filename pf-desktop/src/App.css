@@ -528,12 +528,6 @@
   opacity: 0.85;
 }
 
-.menuOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-}
-
 .menuPanel {
   position: fixed;
   border: 1px solid var(--border);
@@ -542,6 +536,8 @@
   box-shadow: var(--shadow);
   padding: 6px;
   z-index: 1210;
+  max-height: min(520px, calc(100vh - 120px));
+  overflow: auto;
 }
 
 .menuOption {
@@ -667,9 +663,13 @@
 
 .split {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 1fr 380px;
   gap: 12px;
   align-items: start;
+}
+
+.split.noDetail {
+  grid-template-columns: 1fr;
 }
 
 .list {
@@ -684,6 +684,7 @@
   flex-direction: column;
   gap: 4px;
   width: 100%;
+  box-sizing: border-box;
   appearance: none;
   border: none;
   border-bottom: 1px solid var(--border-2);
@@ -715,9 +716,18 @@
 
 .txnRow {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 24px 26px 1fr auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.txnCheck {
+  appearance: auto !important;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
 }
 
 .txnIcon {

@@ -34,8 +34,6 @@ export function SidebarIconView(props: { icon: SidebarIcon; dueSeverity?: DueSev
       return <IconBox color={color}><PercentIcon /></IconBox>
     case 'reports':
       return <IconBox color={color}><ChartIcon /></IconBox>
-    case 'ai':
-      return <IconBox color={color}><SparkleIcon /></IconBox>
     case 'settings':
       return <IconBox color={color}><GearIcon /></IconBox>
   }
@@ -177,7 +175,7 @@ function ChartIcon() {
   )
 }
 
-function SparkleIcon() {
+export function SparkleIcon() {
   return (
     <Svg>
       <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z" />

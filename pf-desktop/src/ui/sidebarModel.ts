@@ -25,7 +25,6 @@ export type SidebarIcon =
   | 'goals'
   | 'debts'
   | 'reports'
-  | 'ai'
   | 'settings'
 
 export function buildSidebar(state: AppState): SidebarGroup[] {
@@ -74,7 +73,7 @@ export function buildSidebar(state: AppState): SidebarGroup[] {
     billsGroup,
     ...(coreGroup ? [coreGroup] : []),
     { title: 'Reports', items: [{ section: 'reports', title: 'Reports', icon: 'reports' }] },
-    { title: 'Settings', items: [{ section: 'settings', title: 'Settings', icon: 'settings' }, { section: 'ai', title: 'AI', icon: 'ai' }] },
+    { title: 'Settings', items: [{ section: 'settings', title: 'Settings', icon: 'settings' }] },
   ]
 }
 

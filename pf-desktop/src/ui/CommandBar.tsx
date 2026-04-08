@@ -33,6 +33,9 @@ export function CommandBar() {
       const parsed = await parseWithAI(input, state.settings)
       applyCommand(parsed.command)
       setInput('')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      window.alert('AI parsing failed: ' + msg)
     } finally {
       setIsParsing(false)
     }
@@ -48,8 +51,8 @@ export function CommandBar() {
         amount: { currencyCode: p.currencyCode ?? state.settings.displayCurrencyCode, value: Math.abs(p.amount) },
         accountId: state.accounts.find((a) => !a.archived)?.id ?? null,
         toAccountId: null,
-        category: p.kind === 'expense' ? 'other' : null,
-        customCategoryName: null,
+        category: p.category ?? (p.kind === 'expense' ? 'other' : null),
+        customCategoryName: p.customCategoryName ?? null,
         payee: p.payee ?? null,
         notes: p.notes ?? null,
         tags: ['ai'],
@@ -68,8 +71,8 @@ export function CommandBar() {
         id: crypto.randomUUID(),
         name: p.name,
         amount: { currencyCode: p.currencyCode ?? state.settings.displayCurrencyCode, value: Math.abs(p.amount) },
-        category: 'other',
-        customCategoryName: null,
+        category: p.category ?? 'other',
+        customCategoryName: p.customCategoryName ?? null,
         recurrence: 'monthly',
         nextDueDate: due,
         notes: null,

@@ -1,11 +1,13 @@
 import { useMemo } from 'react'
 import { useAppStore } from '../../app/appStore'
+import { setSection } from '../../app/AppProvider'
 import { billIsPaidFor, billIsSnoozedActive } from '../../domain/models'
 import { currency } from '../../domain/finance'
 import { calculateMonthSummary } from '../../domain/reports'
+import { toDateInputValue } from '../date'
 
 export function DashboardView() {
-  const { state } = useAppStore()
+  const { state, dispatch } = useAppStore()
   const now = new Date()
 
   const summary = useMemo(() => {
@@ -47,6 +49,54 @@ export function DashboardView() {
     })
     return items
   }, [now, state.bills, state.incomes])
+
+  const overdue = useMemo(() => {
+    const start = new Date(now)
+    start.setHours(0, 0, 0, 0)
+    const items = state.bills
+      .filter((b) => {
+        if (b.hiddenUntilEdited) return false
+        if (billIsSnoozedActive(b, now)) return false
+        if (billIsPaidFor(b, b.nextDueDate)) return false
+        const d = new Date(b.nextDueDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() < start.getTime()
+      })
+      .sort((a, b) => a.nextDueDate.getTime() - b.nextDueDate.getTime())
+
+    const sameCurrency = items.every((b) => b.amount.currencyCode === items[0]?.amount.currencyCode)
+    const code = items.length > 0 && sameCurrency ? items[0].amount.currencyCode : state.settings.displayCurrencyCode
+    const total = items.reduce((acc, b) => acc + b.amount.value, 0)
+    return { items, total, code }
+  }, [now, state.bills, state.settings.displayCurrencyCode])
+
+  const dueNext7 = useMemo(() => {
+    const start = new Date(now)
+    start.setHours(0, 0, 0, 0)
+    const cutoff = new Date(start)
+    cutoff.setDate(cutoff.getDate() + 7)
+    return state.bills
+      .filter((b) => {
+        if (b.hiddenUntilEdited) return false
+        if (billIsSnoozedActive(b, now)) return false
+        if (billIsPaidFor(b, b.nextDueDate)) return false
+        const d = new Date(b.nextDueDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() >= start.getTime() && d.getTime() <= cutoff.getTime()
+      })
+      .sort((a, b) => a.nextDueDate.getTime() - b.nextDueDate.getTime())
+  }, [now, state.bills])
+
+  function openBill(id: string) {
+    dispatch({ type: 'ui/selectBill', id })
+    dispatch(setSection('bills'))
+  }
+
+  function markPaid(id: string) {
+    const bill = state.bills.find((b) => b.id === id)
+    if (!bill) return
+    dispatch({ type: 'bills/logPayment', id, date: bill.nextDueDate })
+  }
 
   return (
     <>
@@ -97,8 +147,53 @@ export function DashboardView() {
           ))}
         </div>
         <div className="dashOverdue">
-          Overdue Total: {currency(0, state.settings.displayCurrencyCode)}
+          Overdue Total: {currency(overdue.total, overdue.code)}
         </div>
+      </div>
+
+      <div className="dashSection">
+        <div className="dashSectionHeader">
+          <div className="dashSectionTitle">Bills Due</div>
+          <div className="dashSectionChevron">▾</div>
+        </div>
+
+        {overdue.items.length === 0 && dueNext7.length === 0 ? (
+          <div className="note" style={{ marginTop: 12 }}>
+            All paid.
+          </div>
+        ) : (
+          <div className="list" style={{ marginTop: 12 }}>
+            {overdue.items.map((b) => (
+              <div key={b.id} className="note" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {b.name} • {toDateInputValue(b.nextDueDate)}
+                </div>
+                <div>{currency(b.amount.value, b.amount.currencyCode)}</div>
+                <button type="button" onClick={() => markPaid(b.id)} style={{ padding: '2px 8px' }}>
+                  Paid
+                </button>
+                <button type="button" onClick={() => openBill(b.id)} style={{ padding: '2px 8px', gridColumn: '1 / -1' }}>
+                  Open
+                </button>
+              </div>
+            ))}
+
+            {dueNext7.map((b) => (
+              <div key={b.id} className="note" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {b.name} • {toDateInputValue(b.nextDueDate)}
+                </div>
+                <div>{currency(b.amount.value, b.amount.currencyCode)}</div>
+                <button type="button" onClick={() => markPaid(b.id)} style={{ padding: '2px 8px' }}>
+                  Paid
+                </button>
+                <button type="button" onClick={() => openBill(b.id)} style={{ padding: '2px 8px', gridColumn: '1 / -1' }}>
+                  Open
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   )

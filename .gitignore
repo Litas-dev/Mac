@@ -1,11 +1,20 @@
 .DS_Store
 
+# Node / JS
+node_modules/
+package-lock.json
+package.json
+
 # Swift Package Manager
 .build/
 .swiftpm/
 
 # App bundle output (custom script)
 build/
+
+# Local artifacts
+*.pdf
+*.PDF
 
 # Xcode
 DerivedData/
