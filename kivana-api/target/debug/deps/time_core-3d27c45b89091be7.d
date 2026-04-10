@@ -1,0 +1,10 @@
+/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/time_core-3d27c45b89091be7.d: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/lib.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/convert.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/hint.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/util.rs
+
+/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/libtime_core-3d27c45b89091be7.rlib: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/lib.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/convert.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/hint.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/util.rs
+
+/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/libtime_core-3d27c45b89091be7.rmeta: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/lib.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/convert.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/hint.rs /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/util.rs
+
+/Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/lib.rs:
+/Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/convert.rs:
+/Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/hint.rs:
+/Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-core-0.1.8/src/util.rs:

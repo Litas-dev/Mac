@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
 import type { BillCategory, Transaction, TransactionKind, UUID } from '../../domain/models'
 import { currency } from '../../domain/finance'
@@ -11,6 +11,7 @@ import { TransactionKindIcon } from '../icons'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
 import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
+import { AI_TRANSACTIONS_AUTOMATION_EVENT, type TransactionsAutomationRequest } from '../../ai/experimentalGuiAutomation'
 
 export function TransactionsView() {
   const { state, dispatch } = useAppStore()
@@ -23,20 +24,32 @@ export function TransactionsView() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [payeeFilter, setPayeeFilter] = useState<string | 'all'>('all')
-  const [categoryFilter, setCategoryFilter] = useState<BillCategory | 'all'>('all')
-  const [sort, setSort] = useState<'dateDesc' | 'dateAsc' | 'amountDesc' | 'amountAsc' | 'netDesc' | 'netAsc'>('dateDesc')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [sort, setSort] = useState<'dateDesc' | 'dateAsc' | 'amountDesc' | 'amountAsc' | 'netDesc' | 'netAsc' | 'nameAsc' | 'nameDesc'>('dateDesc')
   const [showEditor, setShowEditor] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<UUID>>(() => new Set())
+  const [allowLargeUnfilteredList, setAllowLargeUnfilteredList] = useState(false)
   const [taxRatePct, setTaxRatePct] = useState<number>(0)
   const [taxBase, setTaxBase] = useState<'income' | 'expense' | 'net'>('income')
   const [taxOverrideEnabled, setTaxOverrideEnabled] = useState(false)
   const [taxOverrideAmount, setTaxOverrideAmount] = useState<number>(0)
+  const [selectionReportTitle, setSelectionReportTitle] = useState('Selected Transactions')
+  const [bulkCategory, setBulkCategory] = useState<BillCategory>('other')
+  const [bulkCategoryPreset, setBulkCategoryPreset] = useState<string>('cat:other')
+  const [bulkCustomCategoryName, setBulkCustomCategoryName] = useState('')
+  const [showCategorizeWizard, setShowCategorizeWizard] = useState(false)
+  const [wizardGroups, setWizardGroups] = useState<Array<{ payeeKey: string; ids: UUID[]; count: number }>>([])
+  const [wizardIndex, setWizardIndex] = useState(0)
+  const [wizardCategory, setWizardCategory] = useState<BillCategory>('other')
+  const [wizardCustomName, setWizardCustomName] = useState('')
   const [importingPdf, setImportingPdf] = useState(false)
   const [convertingPdf, setConvertingPdf] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const pdfInputRef = useRef<HTMLInputElement | null>(null)
   const convertPdfInputRef = useRef<HTMLInputElement | null>(null)
   const enableTaxPdf = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TAX_PDF === '1'
+  const enableGuiAutomation =
+    (import.meta.env.DEV && import.meta.env.VITE_ENABLE_AI_GUI !== '0') || import.meta.env.VITE_ENABLE_AI_GUI === '1'
 
   function payeeGroupKey(raw: string | null | undefined): string {
     const s = (raw ?? '').trim()
@@ -45,6 +58,28 @@ export function TransactionsView() {
     const head = parts[0] ?? s
     const cleaned = head.replace(/\s+/g, ' ').trim()
     return cleaned.toUpperCase()
+  }
+
+  function titleCase(s: string): string {
+    return s
+      .toLowerCase()
+      .split(' ')
+      .filter((x) => x.length > 0)
+      .map((w) => (w.length === 1 ? w.toUpperCase() : w[0]!.toUpperCase() + w.slice(1)))
+      .join(' ')
+  }
+
+  function suggestCustomCategoryNameFromPayeeKey(payeeKey: string): string {
+    let s = payeeKey.trim()
+    s = s.replace(/^CARD\s+PURCHASE\s+/i, '')
+    s = s.replace(/^CARD\s+PAYMENT\s+/i, '')
+    s = s.replace(/^BILL\s+PAYMENT\s+/i, '')
+    s = s.replace(/^DIRECT\s+DEBIT\s+/i, '')
+    s = s.replace(/^POS\s+/i, '')
+    s = s.replace(/\s+\bON\s+\d+\b$/i, '')
+    s = s.replace(/\bGB\b/gi, '').replace(/\s+/g, ' ').trim()
+    if (!s) s = payeeKey.trim()
+    return titleCase(s)
   }
 
   function shiftDateValue(value: string, deltaYears: number, deltaMonths: number): string {
@@ -69,7 +104,73 @@ export function TransactionsView() {
     return rows
   }, [state.transactions])
 
+  const customExpenseCategoryNames = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of state.transactions) {
+      if (t.kind !== 'expense') continue
+      const v = (t.customCategoryName ?? '').trim()
+      if (v) set.add(v)
+    }
+    for (const b of state.bills) {
+      const v = (b.customCategoryName ?? '').trim()
+      if (v) set.add(v)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [state.bills, state.transactions])
+
+  const payeeExpenseCategorization = useMemo(() => {
+    const countsByPayee = new Map<string, Map<string, number>>()
+    for (const t of state.transactions) {
+      if (t.kind !== 'expense') continue
+      const key = payeeGroupKey(t.payee)
+      if (!key) continue
+      const custom = (t.customCategoryName ?? '').trim()
+      const preset = custom ? `custom:${custom}` : t.category ? `cat:${t.category}` : ''
+      if (!preset) continue
+      if (preset === 'cat:other') continue
+      let m = countsByPayee.get(key)
+      if (!m) {
+        m = new Map()
+        countsByPayee.set(key, m)
+      }
+      m.set(preset, (m.get(preset) ?? 0) + 1)
+    }
+    const out = new Map<string, string>()
+    for (const [key, m] of countsByPayee) {
+      let best = ''
+      let bestCount = 0
+      for (const [preset, c] of m) {
+        if (c > bestCount) {
+          best = preset
+          bestCount = c
+        }
+      }
+      if (best) out.set(key, best)
+    }
+    return out
+  }, [state.transactions])
+
+  const largeListThreshold = 2000
+  const hasAnyFilters = useMemo(() => {
+    if (accountFilterId !== 'all') return true
+    if (kindFilter !== 'all') return true
+    if (sourceFilter !== 'all') return true
+    if (dateFilter !== 'all') {
+      if (dateFilter !== 'range') return true
+      if (dateFrom || dateTo) return true
+    }
+    if (payeeFilter !== 'all') return true
+    if (categoryFilter !== 'all') return true
+    if (sort !== 'dateDesc') return true
+    if (search.trim()) return true
+    return false
+  }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, kindFilter, payeeFilter, search, sort, sourceFilter])
+
+  const isListGated =
+    !allowLargeUnfilteredList && !hasAnyFilters && !selectedId && selectedIds.size === 0 && state.transactions.length > largeListThreshold
+
   const filtered = useMemo(() => {
+    if (isListGated) return []
     let items = state.transactions
     if (accountFilterId !== 'all') {
       items = items.filter((t) => t.accountId === accountFilterId || t.toAccountId === accountFilterId)
@@ -98,7 +199,18 @@ export function TransactionsView() {
       items = items.filter((t) => payeeGroupKey(t.payee) === payeeFilter)
     }
     if (categoryFilter !== 'all') {
-      items = items.filter((t) => t.kind === 'expense' && t.category === categoryFilter)
+      const raw = categoryFilter
+      if (raw.startsWith('cat:')) {
+        const cat = raw.slice('cat:'.length) as BillCategory
+        if (cat === 'other') {
+          items = items.filter((t) => t.kind === 'expense' && t.category === cat && !(t.customCategoryName ?? '').trim())
+        } else {
+          items = items.filter((t) => t.kind === 'expense' && t.category === cat)
+        }
+      } else if (raw.startsWith('custom:')) {
+        const name = raw.slice('custom:'.length).trim().toLowerCase()
+        items = items.filter((t) => t.kind === 'expense' && (t.customCategoryName ?? '').trim().toLowerCase() === name)
+      }
     }
     if (dateFilter !== 'all') {
       const now = new Date()
@@ -139,6 +251,10 @@ export function TransactionsView() {
       if (t.kind === 'expense') return -t.amount.value
       return t.amount.value
     }
+    const titleForSort = (t: Transaction): string => {
+      const s = (t.payee && t.payee.trim()) ? t.payee : t.kind === 'income' ? 'Income' : t.kind === 'expense' ? 'Expense' : 'Transfer'
+      return s.toLowerCase()
+    }
     switch (sort) {
       case 'dateDesc':
         return [...items].sort((a, b) => b.date.getTime() - a.date.getTime())
@@ -152,10 +268,50 @@ export function TransactionsView() {
         return [...items].sort((a, b) => signedValue(b) - signedValue(a))
       case 'netAsc':
         return [...items].sort((a, b) => signedValue(a) - signedValue(b))
+      case 'nameAsc':
+        return [...items].sort((a, b) => {
+          const c = titleForSort(a).localeCompare(titleForSort(b))
+          return c !== 0 ? c : b.date.getTime() - a.date.getTime()
+        })
+      case 'nameDesc':
+        return [...items].sort((a, b) => {
+          const c = titleForSort(b).localeCompare(titleForSort(a))
+          return c !== 0 ? c : b.date.getTime() - a.date.getTime()
+        })
       default:
         return [...items].sort((a, b) => signedAmount(b) - signedAmount(a))
     }
-  }, [accountFilterId, dateFilter, dateFrom, dateTo, kindFilter, payeeFilter, search, sort, sourceFilter, state.transactions])
+  }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, isListGated, kindFilter, payeeFilter, search, sort, sourceFilter, state.transactions])
+
+  const uncategorizedExpenseGroups = useMemo(() => {
+    const byKey = new Map<string, { payeeKey: string; ids: UUID[]; count: number }>()
+    for (const t of filtered) {
+      if (t.kind !== 'expense') continue
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) continue
+      const key = payeeGroupKey(t.payee)
+      if (!key) continue
+      const row = byKey.get(key) ?? { payeeKey: key, ids: [], count: 0 }
+      row.ids.push(t.id)
+      row.count += 1
+      byKey.set(key, row)
+    }
+    return [...byKey.values()]
+      .filter((g) => g.count >= 2)
+      .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.payeeKey.localeCompare(b.payeeKey)))
+  }, [filtered])
+
+  const categorizeWizardEligibleCount = useMemo(() => {
+    return uncategorizedExpenseGroups.reduce((acc, g) => acc + g.count, 0)
+  }, [uncategorizedExpenseGroups])
+
+  useEffect(() => {
+    if (!showCategorizeWizard) return
+    const g = wizardGroups[wizardIndex]
+    if (!g) return
+    setWizardCategory('other')
+    setWizardCustomName(suggestCustomCategoryNameFromPayeeKey(g.payeeKey))
+  }, [showCategorizeWizard, wizardGroups, wizardIndex])
 
   const selected = useMemo(() => {
     if (!selectedId) return null
@@ -175,21 +331,54 @@ export function TransactionsView() {
     return out
   }, [selectedIds, state.transactions])
 
-  const selectionTotals = useMemo(() => {
+  function calcSelectionTotalsFor(params: {
+    tx: Transaction[]
+    taxBase: 'income' | 'expense' | 'net'
+    taxRatePct: number
+    taxOverrideEnabled: boolean
+    taxOverrideAmount: number
+  }) {
     let income = 0
     let expense = 0
-    for (const t of selectedTx) {
+    for (const t of params.tx) {
       if (t.kind === 'income') income += t.amount.value
       else if (t.kind === 'expense') expense += t.amount.value
     }
     const net = income - expense
-    const base = taxBase === 'income' ? income : taxBase === 'expense' ? expense : net
-    const rate = Number.isFinite(taxRatePct) ? taxRatePct : 0
+    const base = params.taxBase === 'income' ? income : params.taxBase === 'expense' ? expense : net
+    const rate = Number.isFinite(params.taxRatePct) ? params.taxRatePct : 0
     const computedTax = Math.max(0, base) * (rate / 100)
-    const tax = taxOverrideEnabled ? Math.max(0, taxOverrideAmount || 0) : computedTax
+    const tax = params.taxOverrideEnabled ? Math.max(0, params.taxOverrideAmount || 0) : computedTax
     const totalWithTax = base + tax
     return { income, expense, net, base, computedTax, tax, totalWithTax }
+  }
+
+  const selectionTotals = useMemo(() => {
+    return calcSelectionTotalsFor({ tx: selectedTx, taxBase, taxRatePct, taxOverrideEnabled, taxOverrideAmount })
   }, [selectedTx, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
+
+  const hasMixedTypes = useMemo(() => {
+    if (selectedTx.length === 0) return false
+    let hasInc = false
+    let hasExp = false
+    for (const t of selectedTx) {
+      if (t.kind === 'income') hasInc = true
+      if (t.kind === 'expense') hasExp = true
+    }
+    return hasInc && hasExp
+  }, [selectedTx])
+
+  const selectedTypeCounts = useMemo(() => {
+    let expense = 0
+    let income = 0
+    let transfer = 0
+    for (const t of selectedTx) {
+      if (t.kind === 'expense') expense += 1
+      else if (t.kind === 'income') income += 1
+      else transfer += 1
+    }
+    return { expense, income, transfer }
+  }, [selectedTx])
 
   function createTransaction() {
     const defaultAccount = state.accounts.find((a) => !a.archived)?.id ?? null
@@ -239,73 +428,212 @@ export function TransactionsView() {
   }
 
   function selectAllFiltered() {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      for (const t of filtered) next.add(t.id)
-      return next
-    })
+    setSelectedIds(new Set(filtered.map((t) => t.id)))
   }
 
-  async function printSelection() {
-    if (selectedTx.length === 0) return
+  function applyExpensePreset(t: Transaction, preset: string): Transaction {
+    if (t.kind !== 'expense') return t
+    if (preset.startsWith('custom:')) {
+      const name = preset.slice('custom:'.length).trim()
+      return { ...t, category: 'other', customCategoryName: name ? name : null }
+    }
+    if (preset.startsWith('cat:')) {
+      const cat = preset.slice('cat:'.length) as any
+      return { ...t, category: cat, customCategoryName: null }
+    }
+    return t
+  }
+
+  const autoCategorizeShownCount = useMemo(() => {
+    let n = 0
+    for (const t of filtered) {
+      if (t.kind !== 'expense') continue
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) continue
+      const key = payeeGroupKey(t.payee)
+      if (!key) continue
+      const preset = payeeExpenseCategorization.get(key)
+      if (!preset) continue
+      n += 1
+    }
+    return n
+  }, [filtered, payeeExpenseCategorization])
+
+  function autoCategorizeShown() {
+    const updates: Transaction[] = []
+    for (const t of filtered) {
+      if (t.kind !== 'expense') continue
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) continue
+      const key = payeeGroupKey(t.payee)
+      if (!key) continue
+      const preset = payeeExpenseCategorization.get(key)
+      if (!preset) continue
+      const next = applyExpensePreset(t, preset)
+      if (next !== t) updates.push(next)
+    }
+    if (updates.length === 0) {
+      window.alert('Nothing to auto-categorize in the current view.')
+      return
+    }
+    dispatch({ type: 'transactions/bulkUpdate', transactions: updates })
+    window.alert(`Auto-categorized ${updates.length} transactions based on previous categorization.`)
+  }
+
+  function openCategorizeWizard() {
+    if (uncategorizedExpenseGroups.length === 0) {
+      window.alert('No repeated uncategorized expenses found in the current view.')
+      return
+    }
+    setWizardGroups(uncategorizedExpenseGroups)
+    setWizardIndex(0)
+    setShowCategorizeWizard(true)
+  }
+
+  function closeCategorizeWizard() {
+    setShowCategorizeWizard(false)
+    setWizardGroups([])
+    setWizardIndex(0)
+  }
+
+  function wizardSkip() {
+    if (wizardIndex >= wizardGroups.length - 1) {
+      closeCategorizeWizard()
+    } else {
+      setWizardIndex((i) => i + 1)
+    }
+  }
+
+  function wizardApplyAndNext() {
+    const g = wizardGroups[wizardIndex]
+    if (!g) return
+    const custom = wizardCustomName.trim()
+    if (wizardCategory === 'other' && !custom) {
+      window.alert('Enter a category name or choose a base category.')
+      return
+    }
+    const finalCategory: BillCategory = custom ? 'other' : wizardCategory
+    const finalCustom = custom ? custom : null
+    const byId = new Map<string, Transaction>()
+    for (const t of state.transactions) byId.set(t.id, t)
+    const updates: Transaction[] = []
+    for (const id of g.ids) {
+      const t = byId.get(id)
+      if (!t) continue
+      if (t.kind !== 'expense') continue
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) continue
+      updates.push({
+        ...t,
+        category: finalCategory,
+        customCategoryName: finalCustom,
+      })
+    }
+    if (updates.length > 0) {
+      dispatch({ type: 'transactions/bulkUpdate', transactions: updates })
+    }
+    if (wizardIndex >= wizardGroups.length - 1) {
+      closeCategorizeWizard()
+    } else {
+      setWizardIndex((i) => i + 1)
+    }
+  }
+
+  function applyBulkCategoryToSelection() {
+    if (selectedIds.size === 0) return
+    const byId = new Map<string, Transaction>()
+    for (const t of state.transactions) byId.set(t.id, t)
+    const custom = bulkCustomCategoryName.trim()
+    const updates: Transaction[] = []
+    let skipped = 0
+    for (const id of selectedIds) {
+      const t = byId.get(id)
+      if (!t) continue
+      if (t.kind !== 'expense') {
+        skipped += 1
+        continue
+      }
+      updates.push({
+        ...t,
+        category: bulkCategory,
+        customCategoryName: custom ? custom : null,
+      })
+    }
+    if (updates.length === 0) {
+      window.alert('No expense transactions selected.')
+      return
+    }
+    dispatch({ type: 'transactions/bulkUpdate', transactions: updates })
+    if (skipped > 0) {
+      window.alert(`Updated ${updates.length} expense transactions. Skipped ${skipped} non-expense transactions.`)
+    } else {
+      window.alert(`Updated ${updates.length} expense transactions.`)
+    }
+  }
+
+  async function printSelectionFor(params: {
+    tx: Transaction[]
+    taxBase: 'income' | 'expense' | 'net'
+    taxRatePct: number
+    taxOverrideEnabled: boolean
+    taxOverrideAmount: number
+    title?: string
+  }) {
+    if (params.tx.length === 0) return
     if (!enableTaxPdf) return
     const displayCurrency = state.settings.displayCurrencyCode
     const fmt = (n: number) => currency(n, displayCurrency)
-    const baseLabel = taxBase === 'income' ? 'Income' : taxBase === 'expense' ? 'Expenses' : 'Net'
+    const baseLabel = params.taxBase === 'income' ? 'Income' : params.taxBase === 'expense' ? 'Expenses' : 'Net'
+    const totals = calcSelectionTotalsFor(params)
+    const title = (params.title ?? selectionReportTitle).trim() || 'Selected Transactions'
 
     const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
     const doc = new JsPDF({ unit: 'pt', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
-    
+
     doc.setFontSize(18)
-    doc.text('Selected Transactions', 42, 48)
-    
+    doc.text(title, 42, 48)
+
     doc.setFontSize(10)
     doc.setTextColor(100, 100, 100)
-    doc.text(`Count: ${selectedTx.length}`, 42, 64)
-    
+    doc.text(`Count: ${params.tx.length}`, 42, 64)
+
     doc.setDrawColor(200, 200, 200)
     doc.setFillColor(250, 250, 250)
     doc.roundedRect(42, 76, pageWidth - 84, 62, 6, 6, 'FD')
-    
+
     doc.setFontSize(11)
     doc.setTextColor(0, 0, 0)
-    
+
     const col1X = 56
     const val1X = 206
     const col2X = 270
     const val2X = 420
-    
+
     doc.setFont('helvetica', 'normal')
     doc.text('Income:', col1X, 98)
     doc.text('Expenses:', col1X, 116)
     doc.text('Net:', col1X, 134)
-    
+
     doc.setFont('helvetica', 'bold')
-    doc.text(fmt(selectionTotals.income), val1X, 98, { align: 'right' })
-    doc.text(fmt(selectionTotals.expense), val1X, 116, { align: 'right' })
-    doc.text(fmt(selectionTotals.net), val1X, 134, { align: 'right' })
-    
+    doc.text(fmt(totals.income), val1X, 98, { align: 'right' })
+    doc.text(fmt(totals.expense), val1X, 116, { align: 'right' })
+    doc.text(fmt(totals.net), val1X, 134, { align: 'right' })
+
     doc.setFont('helvetica', 'normal')
     doc.text(`Tax base (${baseLabel}):`, col2X, 98)
     doc.text('Tax:', col2X, 116)
     doc.text('Total + Tax:', col2X, 134)
-    
-    doc.setFont('helvetica', 'bold')
-    doc.text(fmt(selectionTotals.base), val2X, 98, { align: 'right' })
-    doc.text(fmt(selectionTotals.tax), val2X, 116, { align: 'right' })
-    doc.text(fmt(selectionTotals.totalWithTax), val2X, 134, { align: 'right' })
 
-    const tableData = selectedTx.map((t) => {
+    doc.setFont('helvetica', 'bold')
+    doc.text(fmt(totals.base), val2X, 98, { align: 'right' })
+    doc.text(fmt(totals.tax), val2X, 116, { align: 'right' })
+    doc.text(fmt(totals.totalWithTax), val2X, 134, { align: 'right' })
+
+    const tableData = params.tx.map((t) => {
       const account = t.accountId ? accountNameById.get(t.accountId) ?? '' : ''
       const amt = t.kind === 'expense' ? -t.amount.value : t.amount.value
-      return [
-        toDateInputValue(t.date),
-        t.payee ?? '',
-        account,
-        fmt(amt),
-        t.notes ?? ''
-      ]
+      return [toDateInputValue(t.date), t.payee ?? '', account, fmt(amt), t.notes ?? '']
     })
 
     autoTable(doc, {
@@ -314,9 +642,7 @@ export function TransactionsView() {
       body: tableData,
       theme: 'striped',
       headStyles: { fillColor: [66, 66, 66] },
-      columnStyles: {
-        3: { halign: 'right' }
-      },
+      columnStyles: { 3: { halign: 'right' } },
       styles: { fontSize: 9 },
       didDrawPage: () => {
         const pageNumber = doc.getNumberOfPages()
@@ -324,32 +650,138 @@ export function TransactionsView() {
         doc.setTextColor(120, 120, 120)
         doc.text(`Kivana • ${new Date().toLocaleString()} • Page ${pageNumber}`, 42, doc.internal.pageSize.getHeight() - 28)
         doc.setTextColor(0, 0, 0)
-      }
+      },
     })
 
     if (isTauriRuntime()) {
-      const defaultFileName = `transactions-summary-${new Date().toISOString().slice(0, 10)}.pdf`
+      const safeTitle = title.replace(/[^\w\d]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'transactions'
+      const defaultFileName = `${safeTitle}-${new Date().toISOString().slice(0, 10)}.pdf`
       const filePath = await save({
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
         defaultPath: defaultFileName,
       })
-      
-      if (!filePath) return // user cancelled
-      
-      try {
-        const pdfArrayBuffer = doc.output('arraybuffer')
-        const pdfBytes = Array.from(new Uint8Array(pdfArrayBuffer))
-        await invoke('export_pdf', { destinationPath: filePath, pdfContent: pdfBytes })
-        window.alert('PDF saved successfully!')
-      } catch (err) {
-        console.error('Error saving PDF:', err)
-        window.alert('Failed to save PDF: ' + String(err))
-      }
+      if (!filePath) return
+      const pdfArrayBuffer = doc.output('arraybuffer')
+      const pdfBytes = Array.from(new Uint8Array(pdfArrayBuffer))
+      await invoke('export_pdf', { destinationPath: filePath, pdfContent: pdfBytes })
+      window.alert('PDF saved successfully!')
     } else {
-      // Fallback for browser testing
       doc.save(`transactions-summary-${new Date().toISOString().slice(0, 10)}.pdf`)
     }
   }
+
+  async function printSelection() {
+    await printSelectionFor({
+      tx: selectedTx,
+      taxBase,
+      taxRatePct,
+      taxOverrideEnabled,
+      taxOverrideAmount,
+      title: selectionReportTitle,
+    })
+  }
+
+  useEffect(() => {
+    if (!enableGuiAutomation) return
+    const handler = (ev: Event) => {
+      const e = ev as CustomEvent<TransactionsAutomationRequest>
+      const req = e.detail
+      if (!req) return
+
+      setShowEditor(true)
+      if (req.kind != null) setKindFilter(req.kind)
+      if (req.payee != null) {
+        const key = payeeGroupKey(req.payee)
+        const hasExact = payeeGroups.some((p) => p.key === key)
+        if (hasExact) {
+          setPayeeFilter(key)
+          if (req.search && req.search.trim().toLowerCase() === req.payee.trim().toLowerCase()) {
+            setSearch('')
+          } else if (req.search) {
+            setSearch(req.search)
+          }
+        } else {
+          setPayeeFilter('all')
+          if (req.search && req.search.trim().toLowerCase() === req.payee.trim().toLowerCase()) {
+            setSearch(req.payee)
+          } else {
+            setSearch(req.search ? `${req.search} ${req.payee}` : req.payee)
+          }
+        }
+      } else if (req.search != null) {
+        setSearch(req.search)
+      }
+      if (req.dateFrom != null || req.dateTo != null) {
+        setDateFilter('range')
+        setDateFrom(req.dateFrom ?? '')
+        setDateTo(req.dateTo ?? '')
+      }
+      if (req.taxRatePct != null) {
+        setTaxOverrideEnabled(false)
+        setTaxRatePct(req.taxRatePct)
+      }
+      if (req.taxBase != null) setTaxBase(req.taxBase)
+
+      const from = req.dateFrom ? fromDateInputValue(req.dateFrom) : null
+      const to = req.dateTo ? fromDateInputValue(req.dateTo) : null
+      const toExclusive = to
+        ? (() => {
+            const d = new Date(to)
+            d.setDate(d.getDate() + 1)
+            return d
+          })()
+        : null
+      const hasExactPayee = req.payee ? payeeGroups.some((p) => p.key === payeeGroupKey(req.payee)) : false
+      const effectivePayeeKey = req.payee && hasExactPayee ? payeeGroupKey(req.payee) : null
+      
+      // Clean up duplicate search terms if they perfectly match the payee
+      let effectiveSearch = ''
+      if (req.search) {
+        if (req.payee && req.search.trim().toLowerCase() === req.payee.trim().toLowerCase()) {
+          effectiveSearch = hasExactPayee ? '' : req.payee
+        } else {
+          effectiveSearch = req.payee && !hasExactPayee
+            ? `${req.search} ${req.payee}`
+            : req.search
+        }
+      } else {
+        effectiveSearch = req.payee && !hasExactPayee ? req.payee : ''
+      }
+      
+      const q = effectiveSearch.trim().toLowerCase()
+
+      const hasCriteria = Boolean(req.kind || q || effectivePayeeKey || req.dateFrom || req.dateTo)
+      const matches =
+        req.useExistingSelection || (!req.selectAll && req.printPdf && !hasCriteria)
+          ? selectedTx
+          : state.transactions.filter((t) => {
+              if (req.kind && t.kind !== req.kind) return false
+              if (q) {
+                const hay = [t.payee ?? '', t.notes ?? '', t.customCategoryName ?? '', ...(t.tags ?? [])].join(' ').toLowerCase()
+                if (!hay.includes(q)) return false
+              }
+              if (effectivePayeeKey && payeeGroupKey(t.payee) !== effectivePayeeKey) return false
+              if (from && t.date < from) return false
+              if (toExclusive && t.date >= toExclusive) return false
+              return true
+            })
+
+      if (req.selectAll) setSelectedIds(new Set(matches.map((t) => t.id)))
+      if (req.printPdf) {
+        void printSelectionFor({
+          tx: matches,
+          taxBase: req.taxBase ?? taxBase,
+          taxRatePct: req.taxRatePct ?? taxRatePct,
+          taxOverrideEnabled: req.taxRatePct != null ? false : taxOverrideEnabled,
+          taxOverrideAmount,
+        })
+      }
+    }
+    window.addEventListener(AI_TRANSACTIONS_AUTOMATION_EVENT, handler)
+    return () => {
+      window.removeEventListener(AI_TRANSACTIONS_AUTOMATION_EVENT, handler)
+    }
+  }, [enableGuiAutomation, payeeGroups, selectedTx, state.transactions, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
 
   function importCsvClick() {
     fileInputRef.current?.click()
@@ -376,7 +808,19 @@ export function TransactionsView() {
       const contains = activeAccounts.find((a) => a.name.toLowerCase().includes(normalized.toLowerCase()) || (a.institution ?? '').toLowerCase().includes(normalized.toLowerCase()))
       return contains?.id ?? activeAccounts[0]?.id ?? null
     }
-    const imported = rowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
+    const importedBase = rowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
+    let autoCount = 0
+    const imported = importedBase.map((t) => {
+      if (t.kind !== 'expense') return t
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) return t
+      const key = payeeGroupKey(t.payee)
+      if (!key) return t
+      const preset = payeeExpenseCategorization.get(key)
+      if (!preset) return t
+      autoCount += 1
+      return applyExpensePreset(t, preset)
+    })
     if (imported.length === 0) {
       window.alert('Import complete. No transactions were imported.')
       return
@@ -384,7 +828,7 @@ export function TransactionsView() {
     for (const t of imported) {
       dispatch({ type: 'transactions/add', transaction: t })
     }
-    window.alert(`Import complete. Imported ${imported.length} transactions.`)
+    window.alert(`Import complete. Imported ${imported.length} transactions.${autoCount ? ` Auto-categorized ${autoCount}.` : ''}`)
   }
 
   async function onPickPdf(file: File | null) {
@@ -401,7 +845,19 @@ export function TransactionsView() {
         const contains = activeAccounts.find((a) => a.name.toLowerCase().includes(normalized.toLowerCase()) || (a.institution ?? '').toLowerCase().includes(normalized.toLowerCase()))
         return contains?.id ?? activeAccounts[0]?.id ?? null
       }
-      const imported = pdfRowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
+      const importedBase = pdfRowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
+      let autoCount = 0
+      const imported = importedBase.map((t) => {
+        if (t.kind !== 'expense') return t
+        const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+        if (!isUncategorized) return t
+        const key = payeeGroupKey(t.payee)
+        if (!key) return t
+        const preset = payeeExpenseCategorization.get(key)
+        if (!preset) return t
+        autoCount += 1
+        return applyExpensePreset(t, preset)
+      })
       if (imported.length === 0) {
         window.alert('Import complete. No transactions could be identified in the PDF.')
         return
@@ -409,7 +865,7 @@ export function TransactionsView() {
       for (const t of imported) {
         dispatch({ type: 'transactions/add', transaction: t })
       }
-      window.alert(`Import complete. Imported ${imported.length} transactions.`)
+      window.alert(`Import complete. Imported ${imported.length} transactions.${autoCount ? ` Auto-categorized ${autoCount}.` : ''}`)
     } catch (e) {
       console.error(e)
       window.alert('Failed to parse PDF file. Ensure it is a valid bank statement PDF.')
@@ -429,7 +885,7 @@ export function TransactionsView() {
         const { invoke } = await import('@tauri-apps/api/core')
         const path = await save({ defaultPath: defaultName })
         if (!path) return
-        await invoke('export_csv', { destination_path: path, csv_content: csvString })
+        await invoke('export_csv', { destinationPath: path, csvContent: csvString })
         window.alert('CSV saved.')
       } else {
         const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
@@ -494,7 +950,12 @@ export function TransactionsView() {
       }
     }
     if (payeeFilter !== 'all') parts.push(`Payee: ${payeeFilter}`)
-    if (categoryFilter !== 'all') parts.push(`Cat: ${categoryFilter}`)
+    if (categoryFilter !== 'all') {
+      const raw = categoryFilter
+      if (raw.startsWith('cat:')) parts.push(`Cat: ${raw.slice('cat:'.length)}`)
+      else if (raw.startsWith('custom:')) parts.push(`Cat: ${raw.slice('custom:'.length)}`)
+      else parts.push(`Cat: ${raw}`)
+    }
     if (sort !== 'dateDesc') {
       const label =
         sort === 'dateAsc'
@@ -505,7 +966,11 @@ export function TransactionsView() {
               ? 'Amount ↑'
               : sort === 'netDesc'
                 ? 'Net ↓'
-                : 'Net ↑'
+                : sort === 'netAsc'
+                  ? 'Net ↑'
+                  : sort === 'nameAsc'
+                    ? 'Name A→Z'
+                    : 'Name Z→A'
       parts.push(`Sort: ${label}`)
     }
     return parts.join(' • ')
@@ -521,6 +986,7 @@ export function TransactionsView() {
     setPayeeFilter('all')
     setCategoryFilter('all')
     setSort('dateDesc')
+    setAllowLargeUnfilteredList(false)
   }
 
   function txnTitle(t: Transaction): string {
@@ -583,8 +1049,119 @@ export function TransactionsView() {
     },
   ])
 
+  const wizardCurrentSummary = useMemo(() => {
+    if (!showCategorizeWizard) return null
+    const g = wizardGroups[wizardIndex]
+    if (!g) return null
+    const byId = new Map<string, Transaction>()
+    for (const t of state.transactions) byId.set(t.id, t)
+    const tx: Transaction[] = []
+    let total = 0
+    for (const id of g.ids) {
+      const t = byId.get(id)
+      if (!t) continue
+      tx.push(t)
+      if (t.kind === 'expense') total += t.amount.value
+    }
+    tx.sort((a, b) => b.date.getTime() - a.date.getTime())
+    return {
+      payeeKey: g.payeeKey,
+      count: g.count,
+      total,
+      sample: tx.slice(0, 6),
+      isLast: wizardIndex >= wizardGroups.length - 1,
+      stepLabel: `Step ${wizardIndex + 1} of ${wizardGroups.length}`,
+    }
+  }, [showCategorizeWizard, state.transactions, wizardGroups, wizardIndex])
+
   return (
     <>
+      {showCategorizeWizard && wizardCurrentSummary ? (
+        <div
+          className="modalBackdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeCategorizeWizard()
+          }}
+        >
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalTitle">Categorize Transactions</div>
+            <div className="note">{wizardCurrentSummary.stepLabel}</div>
+            <div className="groupBox" style={{ marginTop: 12 }}>
+              <div className="groupTitle">Payee group</div>
+              <div className="note">
+                {wizardCurrentSummary.payeeKey} • {wizardCurrentSummary.count} transactions • Total {currency(wizardCurrentSummary.total, state.settings.displayCurrencyCode)}
+              </div>
+              <div className="list" style={{ marginTop: 10, maxHeight: 160, overflowY: 'auto' }}>
+                {wizardCurrentSummary.sample.map((t) => (
+                  <div key={t.id} className="listItem stdRow" style={{ padding: '8px 12px' }}>
+                    <div className="rowMain">
+                      <div className="rowTitleText">{txnTitle(t)}</div>
+                      <div className="rowMeta">{toDateInputValue(t.date)}</div>
+                    </div>
+                    <div className="rowAmount">{currency(signedAmount(t), t.amount.currencyCode)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="fieldRow" style={{ marginTop: 12 }}>
+              <label className="field">
+                <div className="fieldLabel">Use existing</div>
+                <MenuSelect
+                  value={
+                    ((wizardCustomName ?? '').trim()
+                      ? `custom:${(wizardCustomName ?? '').trim()}`
+                      : `cat:${wizardCategory}`) as any
+                  }
+                  options={[
+                    ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                    ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
+                  ]}
+                  onChange={(v) => {
+                    const raw = String(v ?? '')
+                    if (raw.startsWith('custom:')) {
+                      setWizardCategory('other')
+                      setWizardCustomName(raw.slice('custom:'.length))
+                    } else if (raw.startsWith('cat:')) {
+                      setWizardCategory(raw.slice('cat:'.length) as any)
+                      setWizardCustomName('')
+                    }
+                  }}
+                  width={240}
+                />
+              </label>
+              <label className="field">
+                <div className="fieldLabel">Base category</div>
+                <MenuSelect
+                  value={wizardCategory as any}
+                  options={categories.map((c) => ({ value: c as any, label: c }))}
+                  onChange={(v) => {
+                    setWizardCategory(v as any)
+                    setWizardCustomName('')
+                  }}
+                  width={240}
+                />
+              </label>
+              <label className="field">
+                <div className="fieldLabel">Category name</div>
+                <input value={wizardCustomName} onChange={(e) => setWizardCustomName(e.target.value)} placeholder="Example: Groceries" />
+              </label>
+            </div>
+
+            <div className="modalActions">
+              <button type="button" onClick={wizardSkip}>
+                Skip
+              </button>
+              <button type="button" onClick={closeCategorizeWizard}>
+                Close
+              </button>
+              <button type="button" onClick={wizardApplyAndNext} className="btnPrimary">
+                {wizardCurrentSummary.isLast ? 'Apply & Finish' : 'Apply & Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="toolbarWrap">
         <div className="row">
           <div className="toolbarLeft">
@@ -805,7 +1382,8 @@ export function TransactionsView() {
                 value={categoryFilter}
                 options={[
                   { value: 'all', label: 'All' },
-                  ...categories.map((c) => ({ value: c as any, label: c })),
+                  ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                  ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
                 ]}
                 onChange={(v) => setCategoryFilter(v as any)}
                 width={170}
@@ -818,6 +1396,8 @@ export function TransactionsView() {
                 options={[
                   { value: 'dateDesc', label: 'Newest' },
                   { value: 'dateAsc', label: 'Oldest' },
+                  { value: 'nameAsc', label: 'Name A→Z' },
+                  { value: 'nameDesc', label: 'Name Z→A' },
                   { value: 'amountDesc', label: 'Amount ↓' },
                   { value: 'amountAsc', label: 'Amount ↑' },
                   { value: 'netDesc', label: 'Net ↓' },
@@ -832,6 +1412,12 @@ export function TransactionsView() {
             </button>
             <button type="button" onClick={selectAllFiltered} disabled={filtered.length === 0}>
               Select all shown
+            </button>
+            <button type="button" onClick={autoCategorizeShown} disabled={autoCategorizeShownCount === 0}>
+              Auto-categorize from history{autoCategorizeShownCount > 0 ? ` (${autoCategorizeShownCount})` : ''}
+            </button>
+            <button type="button" onClick={openCategorizeWizard} disabled={uncategorizedExpenseGroups.length === 0}>
+              Categorize others (wizard){categorizeWizardEligibleCount > 0 ? ` (${categorizeWizardEligibleCount})` : ''}
             </button>
             {selectedIds.size > 0 ? (
               <>
@@ -851,53 +1437,72 @@ export function TransactionsView() {
 
       <div className={showEditor ? 'split' : 'split noDetail'}>
         <div className="list">
-          {filtered.map((t) => (
-            <div
-              key={t.id}
-              role="button"
-              tabIndex={0}
-              className={t.id === selectedId && selectedIds.size === 0 ? 'listItem active txnRow' : 'listItem txnRow'}
-              style={selectedIds.has(t.id) ? { background: 'var(--accent-bg-strong)' } : {}}
-              onClick={() => {
-                if (selectedIds.size > 0) {
-                  toggleSelection(t.id)
-                } else {
-                  dispatch({ type: 'ui/selectTransaction', id: t.id })
-                }
-              }}
-              onContextMenu={(e) => {
-                dispatch({ type: 'ui/selectTransaction', id: t.id })
-                rowMenu.open(e)
-              }}
-            >
-              <div className="txnCheckWrap" style={{ display: 'grid', placeItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  className="txnCheck"
-                  checked={selectedIds.has(t.id)}
-                  onChange={() => toggleSelection(t.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-              <div className="txnIcon" data-tone={amountTone(t)}>
-                <TransactionKindIcon kind={t.kind} />
-              </div>
-              <div className="txnMain">
-                <div className="txnTitle">
-                  <span className="txnTitleText">{txnTitle(t)}</span>
-                  {(t.tags ?? []).includes('bank-csv') || (t.tags ?? []).includes('bank-pdf') ? <span className="pill">Imported</span> : null}
-                </div>
-                <div className="txnMeta">{txnSubtitle(t)}</div>
-              </div>
-              <div className="txnRight">
-                <div className="txnAmount" data-tone={amountTone(t)}>
-                  {currency(signedAmount(t), t.amount.currencyCode)}
-                </div>
-                <div className="txnDate">{toDateInputValue(t.date)}</div>
+          {isListGated ? (
+            <div className="empty">
+              <div>Lots of transactions ({state.transactions.length}). Apply filters to load them.</div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button type="button" onClick={() => setDateFilter('last30')}>
+                  Last 30 days
+                </button>
+                <button type="button" onClick={() => setDateFilter('last90')}>
+                  Last 90 days
+                </button>
+                <button type="button" className="btnPrimary" onClick={() => setAllowLargeUnfilteredList(true)}>
+                  Load all anyway
+                </button>
               </div>
             </div>
-          ))}
-          {filtered.length === 0 ? <div className="empty">No transactions match the current filters.</div> : null}
+          ) : (
+            <>
+              {filtered.map((t) => (
+                <div
+                  key={t.id}
+                  role="button"
+                  tabIndex={0}
+                  className={t.id === selectedId && selectedIds.size === 0 ? 'listItem active txnRow' : 'listItem txnRow'}
+                  style={selectedIds.has(t.id) ? { background: 'var(--accent-bg-strong)' } : {}}
+                  onClick={() => {
+                    if (selectedIds.size > 0) {
+                      toggleSelection(t.id)
+                    } else {
+                      dispatch({ type: 'ui/selectTransaction', id: t.id })
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    dispatch({ type: 'ui/selectTransaction', id: t.id })
+                    rowMenu.open(e)
+                  }}
+                >
+                  <div className="txnCheckWrap" style={{ display: 'grid', placeItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      className="txnCheck"
+                      checked={selectedIds.has(t.id)}
+                      onChange={() => toggleSelection(t.id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  <div className="txnIcon" data-tone={amountTone(t)}>
+                    <TransactionKindIcon kind={t.kind} />
+                  </div>
+                  <div className="txnMain">
+                    <div className="txnTitle">
+                      <span className="txnTitleText">{txnTitle(t)}</span>
+                      {(t.tags ?? []).includes('bank-csv') || (t.tags ?? []).includes('bank-pdf') ? <span className="pill">Imported</span> : null}
+                    </div>
+                    <div className="txnMeta">{txnSubtitle(t)}</div>
+                  </div>
+                  <div className="txnRight">
+                    <div className="txnAmount" data-tone={amountTone(t)}>
+                      {currency(signedAmount(t), t.amount.currencyCode)}
+                    </div>
+                    <div className="txnDate">{toDateInputValue(t.date)}</div>
+                  </div>
+                </div>
+              ))}
+              {filtered.length === 0 ? <div className="empty">No transactions match the current filters.</div> : null}
+            </>
+          )}
         </div>
         {rowMenu.Menu}
 
@@ -908,6 +1513,15 @@ export function TransactionsView() {
                 <div className="groupBox">
                   <div className="groupTitle">Selection summary</div>
                   <div className="note">{selectedTx.length} selected</div>
+                  {hasMixedTypes ? (
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(255, 69, 58, 0.12)', color: 'var(--red)', borderRadius: 8, fontSize: 13, border: '1px solid rgba(255, 69, 58, 0.28)' }}>
+                      <strong>Warning:</strong> Your selection contains a mix of both income and expenses. Please double check before printing.
+                    </div>
+                  ) : null}
+                  <label className="field" style={{ marginTop: 10 }}>
+                    <div className="fieldLabel">PDF title</div>
+                    <input value={selectionReportTitle} onChange={(e) => setSelectionReportTitle(e.target.value)} />
+                  </label>
                   <div className="fieldRow" style={{ marginTop: 10 }}>
                     <label className="field">
                       <div className="fieldLabel">Tax base</div>
@@ -937,6 +1551,58 @@ export function TransactionsView() {
                       <input type="number" value={taxOverrideAmount} onChange={(e) => setTaxOverrideAmount(Number(e.target.value))} />
                     </label>
                   ) : null}
+
+                  <div className="groupBox" style={{ marginTop: 12 }}>
+                    <div className="groupTitle">Bulk category</div>
+                    <div className="note">
+                      {selectedTypeCounts.expense} expenses selected
+                      {selectedTypeCounts.income || selectedTypeCounts.transfer ? ` • ${selectedTypeCounts.income + selectedTypeCounts.transfer} non-expense ignored` : ''}
+                    </div>
+                    <div className="fieldRow" style={{ marginTop: 10 }}>
+                      <label className="field">
+                        <div className="fieldLabel">Category</div>
+                        <MenuSelect
+                          value={bulkCategoryPreset as any}
+                          options={[
+                            ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                            ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
+                          ]}
+                          onChange={(v) => {
+                            const raw = String(v ?? '')
+                            setBulkCategoryPreset(raw)
+                            if (raw.startsWith('custom:')) {
+                              setBulkCategory('other')
+                              setBulkCustomCategoryName(raw.slice('custom:'.length))
+                            } else if (raw.startsWith('cat:')) {
+                              setBulkCategory(raw.slice('cat:'.length) as any)
+                            }
+                          }}
+                          width={220}
+                        />
+                      </label>
+                      <label className="field">
+                        <div className="fieldLabel">Custom name</div>
+                        <input
+                          value={bulkCustomCategoryName}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setBulkCustomCategoryName(v)
+                            const trimmed = v.trim()
+                            if (trimmed) {
+                              setBulkCategoryPreset(`custom:${trimmed}`)
+                              setBulkCategory('other')
+                            } else {
+                              setBulkCategoryPreset(`cat:${bulkCategory}`)
+                            }
+                          }}
+                          placeholder="Optional"
+                        />
+                      </label>
+                    </div>
+                    <button type="button" onClick={applyBulkCategoryToSelection} className="btnPrimary" disabled={selectedTypeCounts.expense === 0}>
+                      Apply to selected
+                    </button>
+                  </div>
 
                   <div className="groupBox">
                     <div className="groupTitle">Totals</div>
@@ -1043,9 +1709,23 @@ export function TransactionsView() {
                     <label className="field">
                       <div className="fieldLabel">Category</div>
                       <MenuSelect
-                        value={(selected.category ?? 'other') as BillCategory}
-                        options={categories.map((c) => ({ value: c, label: c }))}
-                        onChange={(v) => updateSelected({ category: v as BillCategory })}
+                        value={
+                          ((selected.customCategoryName ?? '').trim()
+                            ? `custom:${(selected.customCategoryName ?? '').trim()}`
+                            : `cat:${(selected.category ?? 'other') as any}`) as any
+                        }
+                        options={[
+                          ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                          ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
+                        ]}
+                        onChange={(v) => {
+                          const raw = String(v ?? '')
+                          if (raw.startsWith('custom:')) {
+                            updateSelected({ category: 'other', customCategoryName: raw.slice('custom:'.length) })
+                          } else if (raw.startsWith('cat:')) {
+                            updateSelected({ category: raw.slice('cat:'.length) as any, customCategoryName: null })
+                          }
+                        }}
                       />
                     </label>
                     <label className="field">

@@ -4,10 +4,15 @@ import type { AIProvider, AppSettings } from '../../domain/settings'
 import { exportBackup, importBackupFromFolder, importBackupFromJson } from '../dataActions'
 import { buildBillsIcs } from '../../domain/calendarIcs'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
+import { getMe } from '../../auth/authApi'
+import { useAuth } from '../../auth/AuthProvider'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
-  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'data' | 'updates'>('general')
+  const auth = useAuth()
+  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'account' | 'data' | 'updates'>(
+    'general',
+  )
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<string>('')
   const [dataStatus, setDataStatus] = useState<string>('')
@@ -16,6 +21,11 @@ export function SettingsView() {
   const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateInfo, setUpdateInfo] = useState<any>(null)
   const [currentVersion, setCurrentVersion] = useState<string>('—')
+  const [authEmail, setAuthEmail] = useState<string>('')
+  const [authPassword, setAuthPassword] = useState<string>('')
+  const [authStatus, setAuthStatus] = useState<string>('')
+  const [meStatus, setMeStatus] = useState<string>('')
+  const [entitlementsStatus, setEntitlementsStatus] = useState<string>('')
 
   const settings = state.settings
 
@@ -23,6 +33,10 @@ export function SettingsView() {
     if (!isTauriRuntime()) return
     void import('@tauri-apps/api/app').then(({ getVersion }) => getVersion().then(setCurrentVersion)).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!authEmail && auth.session?.userEmail) setAuthEmail(auth.session.userEmail)
+  }, [auth.session?.userEmail, authEmail])
 
   function updateSettings(patch: Partial<AppSettings>) {
     const nextSettings: AppSettings = { ...settings, ...patch }
@@ -67,6 +81,7 @@ export function SettingsView() {
         incomes,
         accounts: state.accounts,
         transactions,
+        invoices: state.invoices,
         goals: state.goals,
         debts: state.debts,
       },
@@ -115,6 +130,7 @@ export function SettingsView() {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
     }
@@ -174,7 +190,7 @@ export function SettingsView() {
     const { invoke } = await import('@tauri-apps/api/core')
     const path = await save({ defaultPath: 'Kivana_Bills.ics' })
     if (!path) return
-    await invoke('export_calendar_ics', { destination_path: path, ics_content: ics })
+    await invoke('export_calendar_ics', { destinationPath: path, icsContent: ics })
     setCalendarStatus('Exported calendar .ics.')
   }
 
@@ -210,6 +226,67 @@ export function SettingsView() {
     }
   }
 
+  async function signUpClick() {
+    setAuthStatus('')
+    setMeStatus('')
+    setEntitlementsStatus('')
+    try {
+      await auth.signUp(authEmail, authPassword)
+      setAuthStatus('Signed up.')
+    } catch (e: any) {
+      setAuthStatus(`Sign up failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function signInClick() {
+    setAuthStatus('')
+    setMeStatus('')
+    setEntitlementsStatus('')
+    try {
+      await auth.signIn(authEmail, authPassword)
+      setAuthStatus('Signed in.')
+    } catch (e: any) {
+      setAuthStatus(`Sign in failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function signOutClick() {
+    setAuthStatus('')
+    setMeStatus('')
+    setEntitlementsStatus('')
+    try {
+      await auth.signOut()
+      setAuthStatus('Signed out.')
+    } catch (e: any) {
+      setAuthStatus(`Sign out failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function meClick() {
+    setMeStatus('')
+    const s = await auth.getValidSession()
+    if (!s?.accessToken) {
+      setMeStatus('Not signed in.')
+      return
+    }
+    try {
+      const u = await getMe(s.backendBaseURL || settings.backendBaseURL, s.accessToken)
+      setMeStatus(`Signed in as ${u.email}`)
+    } catch (e: any) {
+      setMeStatus(`Failed: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function refreshEntitlementsClick() {
+    setEntitlementsStatus('Loading entitlements…')
+    try {
+      await auth.refreshEntitlements()
+      setEntitlementsStatus('Entitlements updated.')
+    } catch (err: any) {
+      setEntitlementsStatus(`Failed: ${String(err?.message ?? err)}`)
+    }
+  }
+
   return (
     <>
       <div className="settingsPage form">
@@ -229,6 +306,9 @@ export function SettingsView() {
             </button>
             <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>
               AI
+            </button>
+            <button type="button" className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
+              Account
             </button>
             <button type="button" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}>
               Data
@@ -506,6 +586,70 @@ export function SettingsView() {
             </>
           )}
         </div>
+        ) : null}
+
+        {tab === 'account' ? (
+          <div className="settingsGroup">
+            <div className="settingsGroupHeader">
+              <div className="settingsGroupTitle">Account</div>
+            </div>
+
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">Backend URL</div>
+                <div className="settingsRowHint">Example: http://192.248.162.166</div>
+              </div>
+              <input value={settings.backendBaseURL} onChange={(e) => updateSettings({ backendBaseURL: e.target.value })} />
+            </div>
+
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">Email</div>
+              </div>
+              <input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+            </div>
+
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">Password</div>
+                <div className="settingsRowHint">Minimum 8 characters.</div>
+              </div>
+              <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} />
+            </div>
+
+            <div className="settingsRow settingsRowActions">
+              <div className="rowActions">
+                <button type="button" onClick={() => void signUpClick()}>
+                  Sign up
+                </button>
+                <button type="button" onClick={() => void signInClick()}>
+                  Sign in
+                </button>
+                <button type="button" onClick={() => void meClick()} disabled={!auth.session?.accessToken}>
+                  Check session
+                </button>
+                <button type="button" onClick={() => void refreshEntitlementsClick()} disabled={!auth.session}>
+                  Refresh entitlements
+                </button>
+                <button type="button" onClick={() => void signOutClick()} disabled={!auth.session}>
+                  Sign out
+                </button>
+              </div>
+              {auth.session ? <div className="note">Signed in: {auth.session.userEmail}</div> : null}
+              {authStatus ? <div className="note">{authStatus}</div> : null}
+              {meStatus ? <div className="note">{meStatus}</div> : null}
+              {auth.entitlements?.products?.length ? (
+                <div className="note">
+                  {(() => {
+                    const p = auth.entitlements?.products?.find((x) => x.productCode === 'kivana') ?? auth.entitlements?.products?.[0]
+                    if (!p) return null
+                    return `Plan: ${p.productCode} / ${p.planName} (${p.features?.length ?? 0} features)`
+                  })()}
+                </div>
+              ) : null}
+              {entitlementsStatus ? <div className="note">{entitlementsStatus}</div> : null}
+            </div>
+          </div>
         ) : null}
 
         {tab === 'data' ? (

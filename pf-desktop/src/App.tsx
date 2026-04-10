@@ -9,10 +9,13 @@ import { registerTouchBarEvents } from './ui/touchbarEvents'
 import { Sidebar } from './ui/Sidebar'
 import { CommandBar } from './ui/CommandBar'
 import { UpdateWatcher } from './ui/UpdateWatcher'
+import { useAuth } from './auth/AuthProvider'
+import { LoginModal } from './ui/LoginModal'
 
 function App() {
   const store = useAppStore()
   const { state, dispatch } = store
+  const auth = useAuth()
   const stateRef = useRef(store.state)
   stateRef.current = store.state
 
@@ -32,6 +35,7 @@ function App() {
   return (
     <div className="shell">
       <OnboardingModal />
+      <LoginModal />
       <UpdateWatcher />
       <Sidebar />
 
@@ -45,6 +49,22 @@ function App() {
             <div className="toolbarRight">
               <div className="toolbarTitle">{titleForSection(state.ui.section)}</div>
               <input className="toolbarSearch" placeholder="Search" />
+              {auth.ready ? (
+                auth.session ? (
+                  <button type="button" className="accountButton" onClick={() => auth.setOpenLogin(true)}>
+                    <span className="accountEmail">{auth.session.userEmail}</span>
+                    <span className="planBadge">
+                      {(auth.entitlements?.products?.find((p) => p.productCode === 'kivana')?.planName ||
+                        auth.entitlements?.products?.[0]?.planName ||
+                        'Basic') as string}
+                    </span>
+                  </button>
+                ) : (
+                  <button type="button" className="accountButton" onClick={() => auth.setOpenLogin(true)}>
+                    Account
+                  </button>
+                )
+              ) : null}
             </div>
           </div>
         </header>

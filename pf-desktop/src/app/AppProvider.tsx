@@ -254,11 +254,26 @@ function reducer(state: AppState, action: AppAction): AppState {
         transactions: state.transactions.map((t) => (t.id === action.transaction.id ? action.transaction : t)),
         ui: { ...state.ui, selectedTransactionId: action.transaction.id },
       }
+    case 'transactions/bulkUpdate': {
+      if (action.transactions.length === 0) return state
+      const byId = new Map<string, Transaction>()
+      for (const t of action.transactions) byId.set(t.id, t)
+      return {
+        ...state,
+        transactions: state.transactions.map((t) => byId.get(t.id) ?? t),
+      }
+    }
     case 'transactions/delete': {
       const next = state.transactions.filter((t) => t.id !== action.id)
       const sel = state.ui.selectedTransactionId === action.id ? null : state.ui.selectedTransactionId
       return { ...state, transactions: next, ui: { ...state.ui, selectedTransactionId: sel } }
     }
+    case 'invoices/add':
+      return { ...state, invoices: [...state.invoices, action.invoice] }
+    case 'invoices/update':
+      return { ...state, invoices: state.invoices.map((i) => (i.id === action.invoice.id ? action.invoice : i)) }
+    case 'invoices/delete':
+      return { ...state, invoices: state.invoices.filter((i) => i.id !== action.id) }
     case 'goals/add':
       return {
         ...state,
@@ -303,6 +318,7 @@ function emptyDatasets(): LoadedDatasets {
     incomes: [],
     accounts: [],
     transactions: [],
+    invoices: [],
     goals: [],
     debts: [],
   }
@@ -331,6 +347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
     }

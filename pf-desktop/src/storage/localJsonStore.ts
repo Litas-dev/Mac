@@ -2,6 +2,8 @@ import {
   type Account,
   type Bill,
   type BillAttachment,
+  type Invoice,
+  type InvoiceAttachment,
   type Debt,
   type Goal,
   type Income,
@@ -19,6 +21,7 @@ export const DATA_FILES = {
   incomes: 'incomes.json',
   accounts: 'accounts.json',
   transactions: 'transactions.json',
+  invoices: 'invoices.json',
   goals: 'goals.json',
   debts: 'debts.json',
   settings: 'settings.json',
@@ -44,6 +47,7 @@ export interface LoadedDatasets {
   incomes: Income[]
   accounts: Account[]
   transactions: Transaction[]
+  invoices: Invoice[]
   goals: Goal[]
   debts: Debt[]
 }
@@ -55,6 +59,7 @@ export function loadAllFromLocalStorage(fallbackSettings: AppSettings): LoadedDa
     incomes: loadArrayFromLocalStorage('incomes', decodeIncome),
     accounts: loadArrayFromLocalStorage('accounts', decodeAccount),
     transactions: loadArrayFromLocalStorage('transactions', decodeTransaction),
+    invoices: loadArrayFromLocalStorage('invoices', decodeInvoice),
     goals: loadArrayFromLocalStorage('goals', decodeGoal),
     debts: loadArrayFromLocalStorage('debts', decodeDebt),
   }
@@ -66,6 +71,7 @@ export function saveAllToLocalStorage(data: LoadedDatasets): void {
   saveArrayToLocalStorage('incomes', data.incomes, encodeIncome)
   saveArrayToLocalStorage('accounts', data.accounts, encodeAccount)
   saveArrayToLocalStorage('transactions', data.transactions, encodeTransaction)
+  saveArrayToLocalStorage('invoices', data.invoices, encodeInvoice)
   saveArrayToLocalStorage('goals', data.goals, encodeGoal)
   saveArrayToLocalStorage('debts', data.debts, encodeDebt)
 }
@@ -128,6 +134,12 @@ type EncodedBill = Omit<Bill, 'nextDueDate' | 'payments' | 'snoozeUntil' | 'atta
   snoozeUntil?: string | null
   attachments: EncodedBillAttachment[]
 }
+type EncodedInvoiceAttachment = Omit<InvoiceAttachment, 'createdAt'> & { createdAt: string }
+type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'> & {
+  createdAt: string
+  invoiceDate?: string | null
+  attachments: EncodedInvoiceAttachment[]
+}
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
 type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
@@ -148,6 +160,14 @@ function decodeBillAttachment(x: unknown): BillAttachment {
   return { ...o, createdAt: parseISO8601(o.createdAt) }
 }
 
+function encodeInvoiceAttachment(a: InvoiceAttachment): EncodedInvoiceAttachment {
+  return { ...a, createdAt: iso8601NoMillis(a.createdAt) }
+}
+function decodeInvoiceAttachment(x: unknown): InvoiceAttachment {
+  const o = x as EncodedInvoiceAttachment
+  return { ...o, createdAt: parseISO8601(o.createdAt) }
+}
+
 function encodeBill(b: Bill): EncodedBill {
   return {
     ...b,
@@ -165,6 +185,24 @@ function decodeBill(x: unknown): Bill {
     payments: (o.payments ?? []).map(decodePayment),
     snoozeUntil: o.snoozeUntil ? parseISO8601(o.snoozeUntil) : null,
     attachments: (o.attachments ?? []).map(decodeBillAttachment),
+  }
+}
+
+function encodeInvoice(i: Invoice): EncodedInvoice {
+  return {
+    ...i,
+    createdAt: iso8601NoMillis(i.createdAt),
+    invoiceDate: i.invoiceDate ? iso8601NoMillis(i.invoiceDate) : i.invoiceDate ?? null,
+    attachments: (i.attachments ?? []).map(encodeInvoiceAttachment),
+  }
+}
+function decodeInvoice(x: unknown): Invoice {
+  const o = x as EncodedInvoice
+  return {
+    ...o,
+    createdAt: parseISO8601(o.createdAt),
+    invoiceDate: o.invoiceDate ? parseISO8601(o.invoiceDate) : null,
+    attachments: (o.attachments ?? []).map(decodeInvoiceAttachment),
   }
 }
 

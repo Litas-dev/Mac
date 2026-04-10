@@ -28,6 +28,8 @@ export function SidebarIconView(props: { icon: SidebarIcon; dueSeverity?: DueSev
       return <IconBox color={color}><CardIcon /></IconBox>
     case 'transactions':
       return <IconBox color={color}><LinesIcon /></IconBox>
+    case 'invoices':
+      return <IconBox color={color}><ReceiptIcon /></IconBox>
     case 'goals':
       return <IconBox color={color}><TargetIcon /></IconBox>
     case 'debts':

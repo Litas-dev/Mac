@@ -76,6 +76,7 @@ export function OnboardingModal() {
         incomes: state.incomes,
         accounts: state.accounts,
         transactions: state.transactions,
+        invoices: state.invoices,
         goals: state.goals,
         debts: state.debts,
       },

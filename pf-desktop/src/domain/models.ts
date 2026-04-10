@@ -34,6 +34,24 @@ export interface BillAttachment {
   createdAt: Date
 }
 
+export interface InvoiceAttachment {
+  id: UUID
+  displayName: string
+  storedRelativePath: string
+  createdAt: Date
+}
+
+export interface Invoice {
+  id: UUID
+  title: string
+  createdAt: Date
+  invoiceDate?: Date | null
+  vendor?: string | null
+  client?: string | null
+  total?: DecimalAmount | null
+  attachments: InvoiceAttachment[]
+}
+
 export interface Bill {
   id: UUID
   name: string

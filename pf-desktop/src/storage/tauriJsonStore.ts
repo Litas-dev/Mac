@@ -10,6 +10,8 @@ import {
   iso8601NoMillis,
   parseISO8601,
   type BillAttachment,
+  type Invoice,
+  type InvoiceAttachment,
   type Payment,
 } from '../domain/models'
 import type { AppSettings } from '../domain/settings'
@@ -42,6 +44,7 @@ export async function loadAllFromTauriFiles(fallbackSettings: AppSettings): Prom
     incomes: await loadArrayFromTauriFiles('incomes', decodeIncome),
     accounts: await loadArrayFromTauriFiles('accounts', decodeAccount),
     transactions: await loadArrayFromTauriFiles('transactions', decodeTransaction),
+    invoices: await loadArrayFromTauriFiles('invoices', decodeInvoice),
     goals: await loadArrayFromTauriFiles('goals', decodeGoal),
     debts: await loadArrayFromTauriFiles('debts', decodeDebt),
   }
@@ -53,6 +56,7 @@ export async function saveAllToTauriFiles(data: LoadedDatasets): Promise<void> {
   await saveArrayToTauriFiles('incomes', data.incomes, encodeIncome)
   await saveArrayToTauriFiles('accounts', data.accounts, encodeAccount)
   await saveArrayToTauriFiles('transactions', data.transactions, encodeTransaction)
+  await saveArrayToTauriFiles('invoices', data.invoices, encodeInvoice)
   await saveArrayToTauriFiles('goals', data.goals, encodeGoal)
   await saveArrayToTauriFiles('debts', data.debts, encodeDebt)
 }
@@ -118,6 +122,12 @@ type EncodedBill = Omit<Bill, 'nextDueDate' | 'payments' | 'snoozeUntil' | 'atta
   snoozeUntil?: string | null
   attachments: EncodedBillAttachment[]
 }
+type EncodedInvoiceAttachment = Omit<InvoiceAttachment, 'createdAt'> & { createdAt: string }
+type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'> & {
+  createdAt: string
+  invoiceDate?: string | null
+  attachments: EncodedInvoiceAttachment[]
+}
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
 type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
@@ -138,6 +148,14 @@ function decodeBillAttachment(x: unknown): BillAttachment {
   return { ...o, createdAt: parseISO8601(o.createdAt) }
 }
 
+function encodeInvoiceAttachment(a: InvoiceAttachment): EncodedInvoiceAttachment {
+  return { ...a, createdAt: iso8601NoMillis(a.createdAt) }
+}
+function decodeInvoiceAttachment(x: unknown): InvoiceAttachment {
+  const o = x as EncodedInvoiceAttachment
+  return { ...o, createdAt: parseISO8601(o.createdAt) }
+}
+
 function encodeBill(b: Bill): EncodedBill {
   return {
     ...b,
@@ -155,6 +173,24 @@ function decodeBill(x: unknown): Bill {
     payments: (o.payments ?? []).map(decodePayment),
     snoozeUntil: o.snoozeUntil ? parseISO8601(o.snoozeUntil) : null,
     attachments: (o.attachments ?? []).map(decodeBillAttachment),
+  }
+}
+
+function encodeInvoice(i: Invoice): EncodedInvoice {
+  return {
+    ...i,
+    createdAt: iso8601NoMillis(i.createdAt),
+    invoiceDate: i.invoiceDate ? iso8601NoMillis(i.invoiceDate) : i.invoiceDate ?? null,
+    attachments: (i.attachments ?? []).map(encodeInvoiceAttachment),
+  }
+}
+function decodeInvoice(x: unknown): Invoice {
+  const o = x as EncodedInvoice
+  return {
+    ...o,
+    createdAt: parseISO8601(o.createdAt),
+    invoiceDate: o.invoiceDate ? parseISO8601(o.invoiceDate) : null,
+    attachments: (o.attachments ?? []).map(decodeInvoiceAttachment),
   }
 }
 
@@ -205,4 +241,3 @@ function decodeDebt(x: unknown): Debt {
 }
 
 export const tauriDataFolderHint = DATA_FOLDER_NAME
-

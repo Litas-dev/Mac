@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { parseWithAI } from '../ai/aiParser'
 import type { AICommand } from '../ai/commands'
+import { dispatchTransactionsAutomation, parseTransactionsAutomationCommand } from '../ai/experimentalGuiAutomation'
 import type { Bill, Income, Transaction } from '../domain/models'
 import { fromDateInputValue } from './date'
 import { useAppStore } from '../app/appStore'
@@ -11,6 +12,8 @@ export function CommandBar() {
   const { state, dispatch } = useAppStore()
   const [input, setInput] = useState('')
   const [isParsing, setIsParsing] = useState(false)
+  const enableGuiAutomation =
+    (import.meta.env.DEV && import.meta.env.VITE_ENABLE_AI_GUI !== '0') || import.meta.env.VITE_ENABLE_AI_GUI === '1'
   const canRun = useMemo(() => input.trim().length > 0 && !isParsing, [input, isParsing])
 
   useEffect(() => {
@@ -30,6 +33,15 @@ export function CommandBar() {
   async function runParse() {
     setIsParsing(true)
     try {
+      if (enableGuiAutomation) {
+        const req = parseTransactionsAutomationCommand(input)
+        if (req) {
+          dispatch({ type: 'ui/setSection', section: 'transactions' })
+          dispatchTransactionsAutomation(req)
+          setInput('')
+          return
+        }
+      }
       const parsed = await parseWithAI(input, state.settings)
       applyCommand(parsed.command)
       setInput('')

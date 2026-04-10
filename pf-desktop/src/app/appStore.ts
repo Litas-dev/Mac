@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { LoadedDatasets } from '../storage/localJsonStore'
-import type { Account, Bill, Debt, Goal, Income, Transaction, UUID } from '../domain/models'
+import type { Account, Bill, Debt, Goal, Income, Invoice, Transaction, UUID } from '../domain/models'
 
 export type Section =
   | 'dashboard'
@@ -12,6 +12,7 @@ export type Section =
   | 'paidRecently'
   | 'accounts'
   | 'transactions'
+  | 'invoices'
   | 'goals'
   | 'debts'
   | 'reports'
@@ -60,7 +61,11 @@ export type AppAction =
   | { type: 'accounts/delete'; id: UUID }
   | { type: 'transactions/add'; transaction: Transaction }
   | { type: 'transactions/update'; transaction: Transaction }
+  | { type: 'transactions/bulkUpdate'; transactions: Transaction[] }
   | { type: 'transactions/delete'; id: UUID }
+  | { type: 'invoices/add'; invoice: Invoice }
+  | { type: 'invoices/update'; invoice: Invoice }
+  | { type: 'invoices/delete'; id: UUID }
   | { type: 'goals/add'; goal: Goal }
   | { type: 'goals/update'; goal: Goal }
   | { type: 'goals/delete'; id: UUID }

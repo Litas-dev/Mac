@@ -234,6 +234,41 @@
   background: var(--hover);
 }
 
+.accountButton {
+  appearance: none;
+  border: 1px solid var(--border-2);
+  background: rgba(38, 41, 45, 0.92);
+  color: var(--text-h);
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accountButton:hover {
+  background: var(--hover);
+}
+
+.accountEmail {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planBadge {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(10, 132, 255, 0.75);
+  border: 1px solid rgba(10, 132, 255, 0.35);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 .title {
   font-size: 15px;
   font-weight: 700;

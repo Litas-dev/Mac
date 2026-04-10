@@ -11,6 +11,7 @@ import { GoalsView } from './sections/GoalsView'
 import { DebtsView } from './sections/DebtsView'
 import { ReportsView } from './sections/ReportsView'
 import { SettingsView } from './sections/SettingsView'
+import { InvoicesView } from './sections/InvoicesView'
 import { useAppStore } from '../app/appStore'
 
 export function SectionRouter() {
@@ -34,6 +35,8 @@ export function SectionRouter() {
       return <AccountsView />
     case 'transactions':
       return <TransactionsView />
+    case 'invoices':
+      return <InvoicesView />
     case 'goals':
       return <GoalsView />
     case 'debts':

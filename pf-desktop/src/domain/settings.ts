@@ -37,6 +37,7 @@ export interface AppSettings {
   calendarSyncCalendarName: string
   calendarSyncMonthsAhead: number
   calendarSyncLeadDays: number
+  backendBaseURL: string
   aiBaseURL: string
   aiModel: string
   aiProvider: AIProvider
@@ -67,6 +68,7 @@ export function defaultSettings(): AppSettings {
     calendarSyncCalendarName: 'Bills',
     calendarSyncMonthsAhead: 3,
     calendarSyncLeadDays: 3,
+    backendBaseURL: 'http://192.248.162.166',
     aiBaseURL: 'http://localhost:11434',
     aiModel: 'qwen3.5:4b',
     aiProvider: 'local',

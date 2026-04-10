@@ -12,8 +12,8 @@ export function DashboardView() {
 
   const summary = useMemo(() => {
     const month = new Date(now.getFullYear(), now.getMonth(), 1)
-    return calculateMonthSummary({ month, bills: state.bills, incomes: state.incomes })
-  }, [now.getFullYear(), now.getMonth(), state.bills, state.incomes])
+    return calculateMonthSummary({ month, bills: state.bills, incomes: state.incomes, transactions: state.transactions })
+  }, [now.getFullYear(), now.getMonth(), state.bills, state.incomes, state.transactions])
 
   const nextBill = useMemo(() => {
     const candidates = state.bills

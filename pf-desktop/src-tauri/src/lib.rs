@@ -54,6 +54,7 @@ pub fn run() {
       preserve_corrupt_file,
       attachments_root_dir,
       save_bill_attachment,
+      save_invoice_attachment,
       delete_bill_attachment,
       delete_all_attachments,
       reset_all_data,
@@ -165,9 +166,12 @@ fn allowed_data_file(name: &str) -> Option<&'static str> {
     "incomes.json" => Some("incomes.json"),
     "accounts.json" => Some("accounts.json"),
     "transactions.json" => Some("transactions.json"),
+    "invoices.json" => Some("invoices.json"),
     "goals.json" => Some("goals.json"),
     "debts.json" => Some("debts.json"),
     "settings.json" => Some("settings.json"),
+    "auth.json" => Some("auth.json"),
+    "entitlements.json" => Some("entitlements.json"),
     "command_memory.json" => Some("command_memory.json"),
     _ => None,
   }
@@ -331,6 +335,64 @@ fn save_bill_attachment(
   std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
 
   let relative = format!("{}/{}", bill_id, stored_file_name);
+  let fallback_name = src
+    .file_name()
+    .and_then(|s| s.to_str())
+    .filter(|s| !s.trim().is_empty())
+    .unwrap_or(&stored_file_name)
+    .to_string();
+  let dn = display_name
+    .unwrap_or(fallback_name)
+    .trim()
+    .to_string();
+
+  Ok(SavedAttachment {
+    stored_relative_path: relative,
+    display_name: dn,
+  })
+}
+
+#[tauri::command]
+fn save_invoice_attachment(
+  app: tauri::AppHandle,
+  invoice_id: String,
+  attachment_id: String,
+  source_path: String,
+  display_name: Option<String>,
+) -> Result<SavedAttachment, String> {
+  if invoice_id.trim().is_empty() {
+    return Err("invoice_id required".to_string());
+  }
+  if attachment_id.trim().is_empty() {
+    return Err("attachment_id required".to_string());
+  }
+  if !is_absolute_path(&source_path) {
+    return Err("source_path must be absolute".to_string());
+  }
+
+  let src = std::path::PathBuf::from(&source_path);
+  if !src.exists() {
+    return Err("source file does not exist".to_string());
+  }
+  let ext = src
+    .extension()
+    .and_then(|s| s.to_str())
+    .filter(|s| !s.trim().is_empty())
+    .unwrap_or("dat");
+  let stored_file_name = format!("{}.{}", attachment_id, ext);
+
+  let root = attachments_root(&app)?;
+  let invoices_dir = root.join("Invoices");
+  let invoice_dir = invoices_dir.join(&invoice_id);
+  std::fs::create_dir_all(&invoice_dir).map_err(|e| e.to_string())?;
+  let dest = invoice_dir.join(&stored_file_name);
+
+  if dest.exists() {
+    let _ = std::fs::remove_file(&dest);
+  }
+  std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+
+  let relative = format!("Invoices/{}/{}", invoice_id, stored_file_name);
   let fallback_name = src
     .file_name()
     .and_then(|s| s.to_str())

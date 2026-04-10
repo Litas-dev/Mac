@@ -14,6 +14,7 @@ export async function registerMenuEvents(getState: () => AppState, dispatch: (a:
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
     }

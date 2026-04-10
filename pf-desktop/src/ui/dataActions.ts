@@ -26,9 +26,9 @@ export async function exportBackup(datasets: LoadedDatasets): Promise<string> {
   const path = await save({ defaultPath: defaultName })
   if (!path) return 'Export cancelled.'
   await invoke('export_backup', {
-    bundle_dir_path: path,
-    backup_json: json,
-    attachment_paths: attachmentPaths,
+    bundleDirPath: path,
+    backupJson: json,
+    attachmentPaths: attachmentPaths,
   })
   return 'Export complete.'
 }
@@ -59,7 +59,7 @@ export async function importBackupFromFolder(dispatch: (a: AppAction) => void): 
   const source = (await invoke('read_backup_source', { path: dir })) as { json: string; attachments_source_dir: string | null }
   const decoded = decodeBackupToDatasets(source.json)
   if (source.attachments_source_dir) {
-    await invoke('restore_attachments_from', { source_root_dir: source.attachments_source_dir })
+    await invoke('restore_attachments_from', { sourceRootDir: source.attachments_source_dir })
   }
   dispatch({ type: 'data/replaceAll', data: decoded.datasets })
   clearSelections(dispatch)

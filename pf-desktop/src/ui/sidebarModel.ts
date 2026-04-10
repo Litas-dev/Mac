@@ -22,6 +22,7 @@ export type SidebarIcon =
   | 'paidRecently'
   | 'accounts'
   | 'transactions'
+  | 'invoices'
   | 'goals'
   | 'debts'
   | 'reports'
@@ -63,6 +64,7 @@ export function buildSidebar(state: AppState): SidebarGroup[] {
         items: [
           { section: 'accounts', title: 'Accounts', subtitle: accountsSubtitle(state), icon: 'accounts' },
           { section: 'transactions', title: 'Transactions', subtitle: transactionsSubtitle(state, now), icon: 'transactions' },
+          { section: 'invoices', title: 'Invoices', subtitle: 'Import images', icon: 'invoices' },
           { section: 'goals', title: 'Goals', subtitle: goalsSubtitle(state), icon: 'goals' },
           { section: 'debts', title: 'Debts', subtitle: debtsSubtitle(state), icon: 'debts' },
         ],

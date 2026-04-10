@@ -129,10 +129,10 @@ export function BillsView() {
     if (!path || Array.isArray(path)) return
     const attachmentId = crypto.randomUUID()
     const saved = (await invoke('save_bill_attachment', {
-      bill_id: selected.id,
-      attachment_id: attachmentId,
-      source_path: path,
-      display_name: null,
+      billId: selected.id,
+      attachmentId: attachmentId,
+      sourcePath: path,
+      displayName: null,
     })) as { stored_relative_path: string; display_name: string }
     const att: BillAttachment = {
       id: attachmentId,
@@ -148,8 +148,12 @@ export function BillsView() {
     const ok = window.confirm('Remove attachment?')
     if (!ok) return
     if (isTauriRuntime()) {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('delete_bill_attachment', { stored_relative_path: a.storedRelativePath })
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('delete_bill_attachment', { storedRelativePath: a.storedRelativePath })
+      } catch (err) {
+        console.error('Failed to delete attachment', err)
+      }
     }
     updateSelected({ attachments: selected.attachments.filter((x) => x.id !== a.id) })
   }
