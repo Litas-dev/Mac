@@ -1,7 +1,5 @@
 import type { Bill, BillCategory } from './models'
 
-export type DashboardStyle = 'basic' | 'advanced'
-
 export type AIProvider = 'local' | 'external'
 
 export type TextSize = 'small' | 'normal' | 'large'
@@ -31,7 +29,6 @@ export interface AppSettings {
   customBillCategories: string[]
   customIncomeCategories: string[]
   budgetCategories: string[]
-  dashboardStyle: DashboardStyle
   iCloudEnabled: boolean
   calendarSyncEnabled: boolean
   calendarSyncCalendarName: string
@@ -62,13 +59,12 @@ export function defaultSettings(): AppSettings {
     customBillCategories: [],
     customIncomeCategories: [],
     budgetCategories: [],
-    dashboardStyle: 'advanced',
     iCloudEnabled: true,
     calendarSyncEnabled: true,
     calendarSyncCalendarName: 'Bills',
     calendarSyncMonthsAhead: 3,
     calendarSyncLeadDays: 3,
-    backendBaseURL: 'http://192.248.162.166',
+    backendBaseURL: '',
     aiBaseURL: 'http://localhost:11434',
     aiModel: 'qwen3.5:4b',
     aiProvider: 'local',

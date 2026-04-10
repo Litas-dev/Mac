@@ -270,7 +270,7 @@ export function SettingsView() {
       return
     }
     try {
-      const u = await getMe(s.backendBaseURL || settings.backendBaseURL, s.accessToken)
+      const u = await getMe(s.backendBaseURL, s.accessToken)
       setMeStatus(`Signed in as ${u.email}`)
     } catch (e: any) {
       setMeStatus(`Failed: ${String(e?.message ?? e)}`)
@@ -337,17 +337,6 @@ export function SettingsView() {
               <option value="SEK">SEK</option>
               <option value="DKK">DKK</option>
               <option value="PLN">PLN</option>
-            </select>
-          </div>
-
-          <div className="settingsRow">
-            <div className="settingsRowText">
-              <div className="settingsRowLabel">Dashboard style</div>
-              <div className="settingsRowHint">Choose between compact and detailed overview.</div>
-            </div>
-            <select value={settings.dashboardStyle} onChange={(e) => updateSettings({ dashboardStyle: e.target.value as any })}>
-              <option value="advanced">Advanced</option>
-              <option value="basic">Basic</option>
             </select>
           </div>
 
@@ -592,14 +581,6 @@ export function SettingsView() {
           <div className="settingsGroup">
             <div className="settingsGroupHeader">
               <div className="settingsGroupTitle">Account</div>
-            </div>
-
-            <div className="settingsRow">
-              <div className="settingsRowText">
-                <div className="settingsRowLabel">Backend URL</div>
-                <div className="settingsRowHint">Example: http://192.248.162.166</div>
-              </div>
-              <input value={settings.backendBaseURL} onChange={(e) => updateSettings({ backendBaseURL: e.target.value })} />
             </div>
 
             <div className="settingsRow">

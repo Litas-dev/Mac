@@ -28,8 +28,7 @@ export type SidebarIcon =
   | 'reports'
   | 'settings'
 
-export function buildSidebar(state: AppState): SidebarGroup[] {
-  const advanced = state.settings.dashboardStyle === 'advanced'
+export function buildSidebar(state: AppState, advanced: boolean): SidebarGroup[] {
   const now = new Date()
 
   const billsItems: SidebarItem[] = [

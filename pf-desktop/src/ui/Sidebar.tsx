@@ -1,12 +1,16 @@
 import { useMemo } from 'react'
 import { setSection } from '../app/AppProvider'
 import { useAppStore } from '../app/appStore'
+import { useAuth } from '../auth/AuthProvider'
+import { isAdvancedAccount } from '../licensing/licenseGates'
 import { SidebarIconView } from './icons'
 import { buildSidebar } from './sidebarModel'
 
 export function Sidebar() {
   const { state, dispatch } = useAppStore()
-  const groups = useMemo(() => buildSidebar(state), [state])
+  const auth = useAuth()
+  const advanced = useMemo(() => isAdvancedAccount(auth.entitlements), [auth.entitlements])
+  const groups = useMemo(() => buildSidebar(state, advanced), [advanced, state])
 
   return (
     <aside className="sidebar" data-tauri-drag-region>

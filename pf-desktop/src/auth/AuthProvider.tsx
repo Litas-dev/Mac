@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { useAppStore } from '../app/appStore'
 import { getMe, refreshToken as refreshTokenCall, signIn as signInCall, signOut as signOutCall, signUp as signUpCall } from './authApi'
 import { loadAuthSession, saveAuthSession, type AuthSession } from './authStore'
 import { getEntitlements, type EntitlementsResponse } from '../licensing/entitlementsApi'
@@ -31,14 +30,15 @@ function normalizeBaseURL(baseURL: string): string {
   return trimmed.replace(/\/+$/, '')
 }
 
+const HARDCODED_BACKEND_URL = normalizeBaseURL(import.meta.env.VITE_BACKEND_URL || '')
+
 export function AuthProvider(props: { children: React.ReactNode }) {
-  const { state } = useAppStore()
   const [ready, setReady] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(null)
   const [entitlements, setEntitlements] = useState<EntitlementsResponse | null>(null)
   const [openLogin, setOpenLogin] = useState(false)
 
-  const effectiveBaseURL = useMemo(() => normalizeBaseURL(state.settings.backendBaseURL || ''), [state.settings.backendBaseURL])
+  const effectiveBaseURL = HARDCODED_BACKEND_URL
 
   const clearAll = useCallback(async () => {
     setSession(null)
@@ -127,14 +127,17 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       setSession(valid)
       await saveAuthSession(valid)
       try {
-        const e = await getEntitlements(valid.backendBaseURL || effectiveBaseURL, valid.accessToken)
+        const base = normalizeBaseURL(valid.backendBaseURL || effectiveBaseURL)
+        const e = await getEntitlements(base, valid.accessToken)
         if (!cancelled) {
           setEntitlements(e)
           await saveEntitlements(e)
         }
       } catch {
       }
-      setReady(true)
+      if (!cancelled) {
+        setReady(true)
+      }
     })()
     return () => {
       cancelled = true

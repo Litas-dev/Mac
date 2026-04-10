@@ -37,3 +37,4 @@ kivana-api/
 *.tgz
 *.zip
 kivana-api.tar.gz
+pf-desktop/.env

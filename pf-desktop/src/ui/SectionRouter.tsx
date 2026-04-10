@@ -13,10 +13,15 @@ import { ReportsView } from './sections/ReportsView'
 import { SettingsView } from './sections/SettingsView'
 import { InvoicesView } from './sections/InvoicesView'
 import { useAppStore } from '../app/appStore'
+import { useAuth } from '../auth/AuthProvider'
+import { isAdvancedAccount } from '../licensing/licenseGates'
 
 export function SectionRouter() {
   const { state } = useAppStore()
-  switch (state.ui.section) {
+  const auth = useAuth()
+  const advanced = isAdvancedAccount(auth.entitlements)
+  const section = advanced ? state.ui.section : restrictSection(state.ui.section)
+  switch (section) {
     case 'dashboard':
       return <DashboardView />
     case 'calendar':
@@ -45,5 +50,20 @@ export function SectionRouter() {
       return <ReportsView />
     case 'settings':
       return <SettingsView />
+  }
+}
+
+function restrictSection(section: string) {
+  switch (section) {
+    case 'dueSoon':
+    case 'paidRecently':
+    case 'accounts':
+    case 'transactions':
+    case 'invoices':
+    case 'goals':
+    case 'debts':
+      return 'dashboard'
+    default:
+      return section
   }
 }
