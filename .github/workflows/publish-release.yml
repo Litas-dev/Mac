@@ -12,6 +12,7 @@ on:
 
 env:
   RELEASES_REPO: Litas-dev/Kivana
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build_macos:
