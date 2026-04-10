@@ -1,7 +1,0 @@
-/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/form_urlencoded-85efed8cdd00b8b9.d: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/form_urlencoded-1.2.2/src/lib.rs
-
-/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/libform_urlencoded-85efed8cdd00b8b9.rlib: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/form_urlencoded-1.2.2/src/lib.rs
-
-/Users/kostasjankus/Documents/trae_projects/Personal Finances/kivana-api/target/debug/deps/libform_urlencoded-85efed8cdd00b8b9.rmeta: /Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/form_urlencoded-1.2.2/src/lib.rs
-
-/Users/kostasjankus/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/form_urlencoded-1.2.2/src/lib.rs:
