@@ -24,3 +24,16 @@ xcuserdata/
 # Logs
 *.log
 kivana-releases/
+
+# Server / backend (keep local-only)
+kivana-api/
+.env
+.env.*
+
+# Build / archives (keep local-only)
+**/target/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+kivana-api.tar.gz
