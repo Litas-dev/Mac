@@ -529,29 +529,50 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       return cols[cols.length - 1]!.key
     }
 
-    const rows: string[][] = []
-    let carryDateIso: string | null = null
-    let currentMain: string | null = null
-    let currentNotes: string[] = []
+    const cleanCell = (s: string) => {
+      let v = String(s || '').trim()
+      v = v.replace(/^\.+\s*/, '').replace(/\s*\.+$/, '').trim()
+      v = v.replace(/\s+/g, ' ').trim()
+      return v
+    }
 
-    const flush = (amtRaw: string) => {
-      const nAmt = parseDecimal(amtRaw)
+    const isHeaderRow = (dateRaw: string, descRaw: string, amtRaw: string) => {
+      const d = normalizeHeaderToken(dateRaw)
+      const de = normalizeHeaderToken(descRaw)
+      const a = normalizeHeaderToken(amtRaw)
+      if (d === 'date' && de === 'description') return true
+      if (a.includes('amount') && de === 'description') return true
+      return false
+    }
+
+    const out: string[][] = []
+    let currentDateIso: string | null = null
+    let currentDescLines: string[] = []
+    let currentAmountRaw: string | null = null
+
+    const flush = () => {
+      if (!currentDateIso) return
+      if (!currentAmountRaw) return
+      const nAmt = parseDecimal(currentAmountRaw)
       if (nAmt == null || nAmt === 0) return
-      if (!carryDateIso) return
-      
-      const isOut = amtRaw.includes('-') || amtRaw.includes('−') || nAmt < 0
+
+      const isOut = currentAmountRaw.includes('-') || currentAmountRaw.includes('−') || nAmt < 0
       const val = Math.abs(nAmt)
-      
       const moneyOut = isOut ? String(val) : ''
       const moneyIn = !isOut ? String(val) : ''
-      
-      const desc = (currentMain ?? '').trim()
-      const notes = currentNotes.join(' ').trim()
-      const first = desc || notes || 'Transaction'
-      
-      rows.push([carryDateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
-      currentMain = null
-      currentNotes = []
+
+      const main = currentDescLines.find((x) => isMainDescriptionLine(x)) ?? currentDescLines[0] ?? ''
+      const notes = currentDescLines
+        .filter((x) => x !== main)
+        .join(' ')
+        .trim()
+      const first = main.trim() || notes || 'Transaction'
+      out.push([currentDateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
+    }
+
+    const reset = () => {
+      currentDescLines = []
+      currentAmountRaw = null
     }
 
     for (let li = headerLineIndex + 1; li < lines.length; li++) {
@@ -563,24 +584,34 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
       for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
 
-      const dateRaw = by.date.map((x) => x.str).join(' ').trim()
+      const dateRaw = cleanCell(by.date.map((x) => x.str).join(' '))
       const dateIso = dateRaw ? asIsoDate(dateRaw) : null
-      if (dateIso) carryDateIso = dateIso
 
-      const descLine = by.desc.map((x) => x.str).join(' ').trim()
-      
-      if (descLine) {
-        if (!currentMain && isMainDescriptionLine(descLine)) currentMain = descLine
-        else currentNotes.push(descLine)
+      const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
+      const amtRaw = cleanCell(by.amount.map((x) => x.str).join(''))
+
+      if (isHeaderRow(dateRaw, descLine, amtRaw)) continue
+
+      if (dateIso && dateIso !== currentDateIso) {
+        flush()
+        currentDateIso = dateIso
+        reset()
+      } else if (dateIso && !currentDateIso) {
+        currentDateIso = dateIso
       }
 
-      const amtRaw = by.amount.map((x) => x.str).join('').trim()
-      const hasMoney = parseDecimal(amtRaw) != null
-      
-      if (hasMoney) flush(amtRaw)
+      if (descLine) currentDescLines.push(descLine)
+
+      const nAmt = parseDecimal(amtRaw)
+      if (nAmt != null && nAmt !== 0) {
+        currentAmountRaw = amtRaw
+        flush()
+        reset()
+      }
     }
 
-    return rows.length ? rows : null
+    flush()
+    return out.length ? out : null
   }
 
   function findHeaderIndexSplit(headerNorm: string[], leftNeedles: string[], rightNeedles: string[]): number {
