@@ -99,6 +99,21 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     return d.toISOString().slice(0, 10)
   }
 
+  function asIsoDateDmySlash(input: string): string | null {
+    const m = String(input || '')
+      .trim()
+      .match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    if (!m) return null
+    const day = Number(m[1])
+    const month = Number(m[2])
+    const year = Number(m[3])
+    if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return null
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null
+    const d = new Date(Date.UTC(year, month - 1, day))
+    if (!Number.isFinite(d.getTime())) return null
+    return d.toISOString().slice(0, 10)
+  }
+
   function normalizeHeaderToken(input: string): string {
     let s = String(input || '').trim().toLowerCase()
     if (!s) return ''
@@ -168,6 +183,7 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     if (s.startsWith('i:')) return false
     if (s.includes('kortele:')) return false
     if (s.startsWith('reference:')) return false
+    if (s.includes('this relates to a previous transaction')) return false
     return true
   }
 
@@ -546,36 +562,31 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     }
 
     const out: string[][] = []
-    let currentDateIso: string | null = null
-    let currentDescLines: string[] = []
-    let currentAmountRaw: string | null = null
+    type PendingMonzoTx = { dateIso: string | null; descLines: string[]; amountRaw: string | null }
+    let cur: PendingMonzoTx | null = null
 
     const flush = () => {
-      if (!currentDateIso) return
-      if (!currentAmountRaw) return
-      const nAmt = parseDecimal(currentAmountRaw)
+      if (!cur) return
+      if (!cur.dateIso) return
+      if (!cur.amountRaw) return
+      const nAmt = parseDecimal(cur.amountRaw)
       if (nAmt == null || nAmt === 0) return
 
-      const isOut = currentAmountRaw.includes('-') || currentAmountRaw.includes('−') || nAmt < 0
+      const isOut = cur.amountRaw.includes('-') || cur.amountRaw.includes('−') || nAmt < 0
       const val = Math.abs(nAmt)
       const moneyOut = isOut ? String(val) : ''
       const moneyIn = !isOut ? String(val) : ''
 
-      const mainLines = currentDescLines.filter((x) => isMainDescriptionLine(x))
-      const main = mainLines.length > 0 ? mainLines.join(' ') : currentDescLines[0] ?? ''
-      
-      const notes = currentDescLines
+      const cleaned = cur.descLines.map((x) => cleanCell(x)).filter((x) => x.length > 0)
+      const mainLines = cleaned.filter((x) => isMainDescriptionLine(x))
+      const main = mainLines.length > 0 ? mainLines.join(' ') : cleaned[0] ?? ''
+      const notes = cleaned
         .filter((x) => !mainLines.includes(x))
         .join(' ')
         .trim()
-      
-      const first = main.trim() || notes || 'Transaction'
-      out.push([currentDateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
-    }
 
-    const reset = () => {
-      currentDescLines = []
-      currentAmountRaw = null
+      const first = main.trim() || notes || 'Transaction'
+      out.push([cur.dateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
     }
 
     for (let li = headerLineIndex + 1; li < lines.length; li++) {
@@ -588,28 +599,31 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
 
       const dateRaw = cleanCell(by.date.map((x) => x.str).join(' '))
-      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+      const dateIso = dateRaw ? (asIsoDateDmySlash(dateRaw) ?? asIsoDate(dateRaw)) : null
 
       const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
       const amtRaw = cleanCell(by.amount.map((x) => x.str).join(''))
 
       if (isHeaderRow(dateRaw, descLine, amtRaw)) continue
 
-      if (dateIso && dateIso !== currentDateIso) {
-        flush()
-        currentDateIso = dateIso
-        reset()
-      } else if (dateIso && !currentDateIso) {
-        currentDateIso = dateIso
+      const nAmt = parseDecimal(amtRaw)
+      const hasAmount = nAmt != null && nAmt !== 0
+
+      if (dateIso) {
+        if (cur && cur.amountRaw) {
+          flush()
+          cur = null
+        }
+        if (!cur) cur = { dateIso, descLines: [], amountRaw: null }
+        cur.dateIso = dateIso
       }
 
-      if (descLine) currentDescLines.push(descLine)
+      if (!cur) continue
 
-      const nAmt = parseDecimal(amtRaw)
-      if (nAmt != null && nAmt !== 0) {
-        currentAmountRaw = amtRaw
-        flush()
-        reset()
+      if (descLine) cur.descLines.push(descLine)
+
+      if (hasAmount) {
+        cur.amountRaw = amtRaw
       }
     }
 
