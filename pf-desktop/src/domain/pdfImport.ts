@@ -628,7 +628,35 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           .filter((s) => asIsoDateDmySlash(s) == null && asIsoDate(s) == null)
           .join(' '),
       )
-      const descLine = cleanCell([descLineRaw, dateExtras].filter((x) => x.length > 0).join(' '))
+
+      const balanceExtras = cleanCell(
+        by.bal
+          .map((x) => cleanCell(x.str))
+          .filter((s) => s.length > 0)
+          .filter((s) => parseDecimal(s) == null)
+          .join(' '),
+      )
+
+      const amountExtras = cleanCell(
+        by.amount
+          .map((x) => cleanCell(x.str))
+          .filter((s) => s.length > 0)
+          .filter((s) => parseDecimal(s) == null)
+          .join(' '),
+      )
+
+      let descLine = cleanCell([descLineRaw, dateExtras, amountExtras, balanceExtras].filter((x) => x.length > 0).join(' '))
+      if (!descLine && hasAmount) {
+        const allText = cleanCell(
+          [...by.desc, ...by.date, ...by.amount, ...by.bal]
+            .map((x) => cleanCell(x.str))
+            .filter((s) => s.length > 0)
+            .filter((s) => parseDecimal(s) == null)
+            .filter((s) => asIsoDateDmySlash(s) == null && asIsoDate(s) == null)
+            .join(' '),
+        )
+        descLine = allText
+      }
 
       if (hasAmount && effectiveDate) {
         pushTx(effectiveDate, descLine, amtRaw, [])
