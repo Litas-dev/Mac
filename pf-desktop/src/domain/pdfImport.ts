@@ -561,11 +561,14 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       const moneyOut = isOut ? String(val) : ''
       const moneyIn = !isOut ? String(val) : ''
 
-      const main = currentDescLines.find((x) => isMainDescriptionLine(x)) ?? currentDescLines[0] ?? ''
+      const mainLines = currentDescLines.filter((x) => isMainDescriptionLine(x))
+      const main = mainLines.length > 0 ? mainLines.join(' ') : currentDescLines[0] ?? ''
+      
       const notes = currentDescLines
-        .filter((x) => x !== main)
+        .filter((x) => !mainLines.includes(x))
         .join(' ')
         .trim()
+      
       const first = main.trim() || notes || 'Transaction'
       out.push([currentDateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
     }
