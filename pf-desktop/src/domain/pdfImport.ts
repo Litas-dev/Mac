@@ -147,20 +147,6 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     return -1
   }
 
-  function pickNumericCellFromRow(r: string[], idx: number): string {
-    const v = (r[idx] ?? '').trim()
-    if (parseDecimal(v) != null) return v
-    const left = idx > 0 ? (r[idx - 1] ?? '').trim() : ''
-    const right = idx + 1 < r.length ? (r[idx + 1] ?? '').trim() : ''
-    const l = parseDecimal(left)
-    const rr = parseDecimal(right)
-    if (rr != null && l == null) return right
-    if (l != null && rr == null) return left
-    if (rr != null) return right
-    if (l != null) return left
-    return v
-  }
-
   function buildTransactionsCsvFromMappedRows(mappedRows: string[][]): string[][] {
     const rows = mappedRows.filter((r) => r.some((c) => c.trim().length > 0))
     if (rows.length === 0) return []
@@ -537,8 +523,57 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           barclaysHeaderAdded = true
         }
 
-        const outColActual = outCol
-        const inColActual = inCol
+        const scan = mappedRows.slice(headerRowIndex + 1, headerRowIndex + 1 + 250)
+        const isNonZeroMoney = (v: string) => {
+          const n = parseDecimal(v)
+          return n != null && n !== 0
+        }
+        const scoreMoneyCol = (idx: number) => {
+          let c = 0
+          for (const r of scan) if (isNonZeroMoney(r[idx] ?? '')) c += 1
+          return c
+        }
+        const bestMoneyCol = (center: number, forbidden: Set<number>) => {
+          let best = -1
+          let bestScore = -1
+          let bestDist = Number.POSITIVE_INFINITY
+          const start = Math.max(0, center - 2)
+          const end = Math.min(header.length - 1, center + 2)
+          for (let i = start; i <= end; i++) {
+            if (forbidden.has(i)) continue
+            const sc = scoreMoneyCol(i)
+            if (sc <= 0) continue
+            const dist = Math.abs(i - center)
+            if (sc > bestScore || (sc === bestScore && dist < bestDist)) {
+              bestScore = sc
+              best = i
+              bestDist = dist
+            }
+          }
+          return best
+        }
+
+        const forbiddenBase = new Set<number>()
+        if (balCol >= 0) forbiddenBase.add(balCol)
+        forbiddenBase.add(dateCol)
+        forbiddenBase.add(descCol)
+
+        const outColActual = bestMoneyCol(outCol, forbiddenBase)
+        const forbiddenIn = new Set(forbiddenBase)
+        if (outColActual >= 0) forbiddenIn.add(outColActual)
+        const inColActual = bestMoneyCol(inCol, forbiddenIn)
+
+        if (outColActual < 0 || inColActual < 0) {
+          // Fall back to generic parser if we can't confidently detect money columns
+          const generic = buildTransactionsCsvFromMappedRows(mappedRows)
+          if (generic.length > 0) {
+            csvRows.push(...generic)
+          } else {
+            csvRows.push(...mappedRows)
+          }
+          continue
+        }
+
         const stopTextAt = Math.min(outColActual, inColActual, balCol >= 0 ? balCol : Number.POSITIVE_INFINITY)
         const descStart = Math.min(descCol, stopTextAt === Number.POSITIVE_INFINITY ? descCol : stopTextAt)
 
@@ -565,13 +600,31 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           pendingDesc = []
         }
 
+        const pickMoneyNear = (r: string[], center: number, forbidden: Set<number>) => {
+          const candidates = [center, center - 1, center + 1]
+          for (const idx of candidates) {
+            if (idx < 0 || idx >= r.length) continue
+            if (forbidden.has(idx)) continue
+            const v = (r[idx] ?? '').trim()
+            if (isNonZeroMoney(v)) return v
+          }
+          return (r[center] ?? '').trim()
+        }
+
+        const forbiddenOut = new Set<number>()
+        forbiddenOut.add(inColActual)
+        if (balCol >= 0) forbiddenOut.add(balCol)
+        const forbiddenIn2 = new Set<number>()
+        forbiddenIn2.add(outColActual)
+        if (balCol >= 0) forbiddenIn2.add(balCol)
+
         for (const r of mappedRows.slice(headerRowIndex + 1)) {
           const dateRaw = (r[dateCol] ?? '').trim()
           const dateIso = dateRaw ? asIsoDate(dateRaw) : null
           if (dateIso) carryDateIso = dateIso
 
-          const outRaw = pickNumericCellFromRow(r, outColActual)
-          const inRaw = pickNumericCellFromRow(r, inColActual)
+          const outRaw = pickMoneyNear(r, outColActual, forbiddenOut)
+          const inRaw = pickMoneyNear(r, inColActual, forbiddenIn2)
           const descRaw = betweenDescAndStop(r)
 
           if (descRaw) pendingDesc.push(descRaw)
