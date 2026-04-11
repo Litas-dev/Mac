@@ -144,6 +144,69 @@ export function AuthProvider(props: { children: React.ReactNode }) {
     }
   }, [clearAll, effectiveBaseURL, ensureValidSession])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function pollEvents() {
+      while (!cancelled) {
+        const s = await getValidSession()
+        if (!s?.accessToken) {
+          await new Promise((r) => setTimeout(r, 2000))
+          continue
+        }
+
+        try {
+          const base = normalizeBaseURL(s.backendBaseURL || effectiveBaseURL)
+          const res = await fetch(`${base}/v1/events/poll`, {
+            method: 'GET',
+            headers: {
+              'authorization': `Bearer ${s.accessToken}`,
+            }
+          })
+
+          if (cancelled) break
+
+          if (res.status === 200) {
+            const event = await res.json()
+            const eventType = (event as any)?.eventType || (event as any)?.event_type
+            if (eventType === 'entitlements_updated') {
+              await refreshEntitlements()
+            }
+          } else if (res.status === 401 || res.status === 403) {
+            await new Promise((r) => setTimeout(r, 5000))
+          } else {
+            // 204 No Content or other errors: just loop immediately or after short delay
+            if (res.status !== 204) {
+              await new Promise((r) => setTimeout(r, 2000))
+            }
+          }
+        } catch {
+          // Network error, wait before retrying
+          if (!cancelled) await new Promise((r) => setTimeout(r, 5000))
+        }
+      }
+    }
+
+    void pollEvents()
+
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveBaseURL, getValidSession, refreshEntitlements])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!session?.accessToken) return
+    const interval = setInterval(() => {
+      if (cancelled) return
+      void refreshEntitlements().catch(() => {})
+    }, 5 * 60 * 1000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [session?.accessToken, refreshEntitlements])
+
   const signUp = useCallback(
     async (email: string, password: string) => {
       const base = normalizeBaseURL(effectiveBaseURL)

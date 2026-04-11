@@ -18,6 +18,7 @@ function App() {
   const auth = useAuth()
   const stateRef = useRef(store.state)
   stateRef.current = store.state
+  const accountLabel = auth.session ? displayNameForEmail(auth.session.userEmail) : ''
 
   useEffect(() => {
     if (!isTauriRuntime()) return
@@ -52,7 +53,7 @@ function App() {
               {auth.ready ? (
                 auth.session ? (
                   <button type="button" className="accountButton" onClick={() => auth.setOpenLogin(true)}>
-                    <span className="accountEmail">{auth.session.userEmail}</span>
+                    <span className="accountEmail">{accountLabel}</span>
                     <span className="planBadge">
                       {(auth.entitlements?.products?.find((p) => p.productCode === 'kivana')?.planName ||
                         auth.entitlements?.products?.[0]?.planName ||
@@ -109,4 +110,11 @@ function titleForSection(section: string): string {
     default:
       return 'Kivana'
   }
+}
+
+function displayNameForEmail(email: string): string {
+  const trimmed = String(email || '').trim()
+  const at = trimmed.indexOf('@')
+  if (at <= 0) return trimmed
+  return trimmed.slice(0, at)
 }
