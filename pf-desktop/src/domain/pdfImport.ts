@@ -562,22 +562,31 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     }
 
     const out: string[][] = []
-    type PendingMonzoTx = { dateIso: string | null; descLines: string[]; amountRaw: string | null }
-    let cur: PendingMonzoTx | null = null
+    let lastDateIso: string | null = null
 
-    const flush = () => {
-      if (!cur) return
-      if (!cur.dateIso) return
-      if (!cur.amountRaw) return
-      const nAmt = parseDecimal(cur.amountRaw)
+    const appendNoteToLast = (note: string) => {
+      const n = note.trim()
+      if (!n) return
+      const last = out[out.length - 1]
+      if (!last) return
+      const existing = String(last[2] ?? '').trim()
+      if (!existing) {
+        last[2] = n
+        return
+      }
+      const joined = `${existing} ${n}`.trim()
+      last[2] = joined
+    }
+
+    const pushTx = (dateIso: string, descLine: string, amtRaw: string, extraNotes: string[]) => {
+      const nAmt = parseDecimal(amtRaw)
       if (nAmt == null || nAmt === 0) return
-
-      const isOut = cur.amountRaw.includes('-') || cur.amountRaw.includes('−') || nAmt < 0
+      const isOut = amtRaw.includes('-') || amtRaw.includes('−') || nAmt < 0
       const val = Math.abs(nAmt)
       const moneyOut = isOut ? String(val) : ''
       const moneyIn = !isOut ? String(val) : ''
 
-      const cleaned = cur.descLines.map((x) => cleanCell(x)).filter((x) => x.length > 0)
+      const cleaned = [descLine, ...extraNotes].map((x) => cleanCell(x)).filter((x) => x.length > 0)
       const mainLines = cleaned.filter((x) => isMainDescriptionLine(x))
       const main = mainLines.length > 0 ? mainLines.join(' ') : cleaned[0] ?? ''
       const notes = cleaned
@@ -586,7 +595,7 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
         .trim()
 
       const first = main.trim() || notes || 'Transaction'
-      out.push([cur.dateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
+      out.push([dateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
     }
 
     for (let li = headerLineIndex + 1; li < lines.length; li++) {
@@ -600,6 +609,7 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
 
       const dateRaw = cleanCell(by.date.map((x) => x.str).join(' '))
       const dateIso = dateRaw ? (asIsoDateDmySlash(dateRaw) ?? asIsoDate(dateRaw)) : null
+      if (dateIso) lastDateIso = dateIso
 
       const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
       const amtRaw = cleanCell(by.amount.map((x) => x.str).join(''))
@@ -609,25 +619,27 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       const nAmt = parseDecimal(amtRaw)
       const hasAmount = nAmt != null && nAmt !== 0
 
-      if (dateIso) {
-        if (cur && cur.amountRaw) {
-          flush()
-          cur = null
-        }
-        if (!cur) cur = { dateIso, descLines: [], amountRaw: null }
-        cur.dateIso = dateIso
+      const effectiveDate = dateIso ?? lastDateIso
+
+      if (hasAmount && effectiveDate) {
+        pushTx(effectiveDate, descLine, amtRaw, [])
+        continue
       }
 
-      if (!cur) continue
-
-      if (descLine) cur.descLines.push(descLine)
-
-      if (hasAmount) {
-        cur.amountRaw = amtRaw
+      if (descLine) {
+        const norm = normalizeHeaderToken(descLine)
+        const looksLikeSmallDetail =
+          norm.startsWith('reference:') ||
+          norm.includes('this relates to a previous transaction') ||
+          norm.startsWith('mf') ||
+          norm.startsWith('kid') ||
+          norm.startsWith('ref')
+        if (looksLikeSmallDetail) {
+          appendNoteToLast(descLine)
+        }
       }
     }
 
-    flush()
     return out.length ? out : null
   }
 
