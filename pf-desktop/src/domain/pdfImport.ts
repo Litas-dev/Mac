@@ -486,17 +486,21 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
 
         const scan = mappedRows.slice(headerRowIndex + 1, headerRowIndex + 1 + 150)
         const isNumericCell = (v: string) => parseDecimal(v) != null
-        const bestColAround = (center: number) => {
+        const bestNumericNear = (center: number, forbidden: Set<number>) => {
           const start = Math.max(0, center - 3)
           const end = Math.min((mappedRows[0]?.length ?? center + 4), center + 4)
           let best = center
           let bestScore = -1
+          let bestDist = Number.POSITIVE_INFINITY
           for (let i = start; i < end; i++) {
+            if (forbidden.has(i)) continue
             let score = 0
             for (const r of scan) if (isNumericCell(r[i] ?? '')) score += 1
-            if (score > bestScore) {
+            const dist = Math.abs(i - center)
+            if (score > bestScore || (score === bestScore && dist < bestDist)) {
               bestScore = score
               best = i
+              bestDist = dist
             }
           }
           return best
@@ -517,10 +521,13 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           return best
         }
 
-        const outColActual = bestColAround(outCol)
-        const inColActual = bestColAround(inCol)
-        const balColActual = balCol >= 0 ? bestColAround(balCol) : -1
-        const stopTextAt = Math.min(outColActual, inColActual, balColActual >= 0 ? balColActual : Infinity)
+        const forbiddenMoney = new Set<number>()
+        if (balCol >= 0) forbiddenMoney.add(balCol)
+
+        const outColActual = bestNumericNear(outCol, forbiddenMoney)
+        const inColActual = bestNumericNear(inCol, forbiddenMoney)
+
+        const stopTextAt = Math.min(outColActual, inColActual)
         const descColActual = bestTextCol(descCol, stopTextAt)
 
         const betweenDescAndStop = (r: string[]) => {
@@ -539,7 +546,7 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
 
           const outRaw = (r[outColActual] ?? '').trim()
           const inRaw = (r[inColActual] ?? '').trim()
-          const balRaw = balColActual >= 0 ? (r[balColActual] ?? '').trim() : ''
+          const balRaw = ''
           const descRaw = betweenDescAndStop(r)
 
           const nOut = parseDecimal(outRaw)
