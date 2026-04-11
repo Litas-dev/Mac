@@ -1134,15 +1134,31 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     const generic = buildTransactionsCsvFromMappedRows(mappedRows)
     if (generic.length > 0) {
       csvRows.push(...generic)
-    } else {
-      csvRows.push(...mappedRows)
     }
   }
 
   // Convert array of arrays to CSV string
-  return csvRows.map(row => 
-    row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')
-  ).join('\n')
+  const header = ['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance']
+  const isHeaderRow = (row: string[]) => {
+    const a = (row[0] ?? '').trim().toLowerCase()
+    const b = (row[1] ?? '').trim().toLowerCase()
+    return a === 'date' && b === 'description'
+  }
+
+  const cleaned: string[][] = []
+  for (const row of csvRows) {
+    if (!row || row.length === 0) continue
+    if (isHeaderRow(row)) continue
+    const joined = row.join(' ').trim().toLowerCase()
+    if (!joined) continue
+    if (joined === 'your transactions') continue
+    cleaned.push(row)
+  }
+
+  const finalRows = [header, ...cleaned]
+  return finalRows
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n')
 }
 
 export async function parsePdfRows(file: File): Promise<CsvRow[]> {
