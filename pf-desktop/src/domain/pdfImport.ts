@@ -1,5 +1,5 @@
 import type { Transaction, UUID } from './models'
-import { parseCsvRows, rowsToTransactions } from './csvImport'
+import { parseCsvRows, parseDate, parseDecimal, rowsToTransactions } from './csvImport'
 import type { CsvRow } from './csvImport'
 
 type PdfTextItem = { str: string; hasEOL?: boolean; transform: number[] }
@@ -79,6 +79,114 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     const fallback = new Date(period.start.getFullYear(), mo, day)
     if (!Number.isFinite(fallback.getTime())) return null
     return fallback.toISOString().slice(0, 10)
+  }
+
+  function isLikelyMoney(input: string): boolean {
+    const s = input.trim()
+    if (!s) return false
+    if (/[€£$]/.test(s)) return true
+    if (/\(\s*[-−+]?\d/.test(s) && /\)/.test(s)) return true
+    if (/[-−+]/.test(s) && /[.,]\d{2}\b/.test(s)) return true
+    if (/[.,]\d{2}\b/.test(s)) return true
+    return false
+  }
+
+  function asIsoDate(input: string): string | null {
+    const dm = inferIsoDateFromDayMonth(input)
+    if (dm) return dm
+    const d = parseDate(input)
+    if (!d) return null
+    return d.toISOString().slice(0, 10)
+  }
+
+  function buildTransactionsCsvFromMappedRows(mappedRows: string[][]): string[][] {
+    const rows = mappedRows.filter((r) => r.some((c) => c.trim().length > 0))
+    if (rows.length === 0) return []
+    const width = Math.max(...rows.map((r) => r.length))
+    const sample = rows.slice(0, 250)
+
+    const scores = Array.from({ length: width }, () => ({ date: 0, money: 0, text: 0 }))
+    for (const r of sample) {
+      for (let i = 0; i < width; i++) {
+        const v = (r[i] ?? '').trim()
+        if (!v) continue
+        if (asIsoDate(v)) scores[i]!.date += 1
+        if (isLikelyMoney(v) && parseDecimal(v) != null) scores[i]!.money += 1
+        if (/[A-Za-z]/.test(v) && v.length >= 3) scores[i]!.text += 1
+      }
+    }
+
+    const pickBest = (key: 'date' | 'money' | 'text', exclude: Set<number>) => {
+      let best = -1
+      let bestScore = -1
+      for (let i = 0; i < width; i++) {
+        if (exclude.has(i)) continue
+        const sc = scores[i]![key]
+        if (sc > bestScore) {
+          bestScore = sc
+          best = i
+        }
+      }
+      return bestScore > 0 ? best : -1
+    }
+
+    const used = new Set<number>()
+    const dateCol = pickBest('date', used)
+    if (dateCol >= 0) used.add(dateCol)
+
+    const moneyCols: number[] = []
+    for (let k = 0; k < 3; k++) {
+      const idx = pickBest('money', used)
+      if (idx < 0) break
+      used.add(idx)
+      moneyCols.push(idx)
+    }
+
+    const descCol = pickBest('text', used)
+
+    const outCol = moneyCols[0] ?? -1
+    const inCol = moneyCols.length >= 2 ? moneyCols[1]! : -1
+    const balCol = moneyCols.length >= 3 ? moneyCols[2]! : -1
+
+    if (dateCol < 0 || descCol < 0 || outCol < 0) return []
+
+    const out: string[][] = [['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance']]
+
+    for (const r of rows) {
+      const dateRaw = (r[dateCol] ?? '').trim()
+      const descRaw = (r[descCol] ?? '').trim()
+      const outRaw = outCol >= 0 ? (r[outCol] ?? '').trim() : ''
+      const inRaw = inCol >= 0 ? (r[inCol] ?? '').trim() : ''
+      const balRaw = balCol >= 0 ? (r[balCol] ?? '').trim() : ''
+
+      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+      if (!dateIso) continue
+
+      let moneyOut = outRaw
+      let moneyIn = inRaw
+      if (inCol < 0) {
+        const n = parseDecimal(outRaw)
+        if (n == null) continue
+        if (n < 0) {
+          moneyOut = String(Math.abs(n))
+          moneyIn = ''
+        } else if (n > 0) {
+          moneyOut = ''
+          moneyIn = String(Math.abs(n))
+        } else {
+          continue
+        }
+      } else {
+        const nOut = parseDecimal(moneyOut)
+        const nIn = parseDecimal(moneyIn)
+        if ((nOut == null || nOut === 0) && (nIn == null || nIn === 0)) continue
+      }
+
+      const first = descRaw || 'Transaction'
+      out.push([dateIso, first, '', moneyOut, moneyIn, balRaw])
+    }
+
+    return out.length > 1 ? out : []
   }
 
   let csvRows: string[][] = []
@@ -287,7 +395,12 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
     }
 
-    csvRows.push(...mappedRows)
+    const generic = buildTransactionsCsvFromMappedRows(mappedRows)
+    if (generic.length > 0) {
+      csvRows.push(...generic)
+    } else {
+      csvRows.push(...mappedRows)
+    }
   }
 
   // Convert array of arrays to CSV string
