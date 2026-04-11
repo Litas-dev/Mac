@@ -670,9 +670,24 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           norm.includes('this relates to a previous transaction') ||
           norm.startsWith('mf') ||
           norm.startsWith('kid') ||
-          norm.startsWith('ref')
+          norm.startsWith('ref') ||
+          norm.startsWith('card') ||
+          norm.startsWith('kam:') ||
+          norm.startsWith('nuroda')
+        
         if (looksLikeSmallDetail) {
           appendNoteToLast(descLine)
+        } else {
+          // If it doesn't look like a tiny detail, append it to the main Description of the last row
+          const last = out[out.length - 1]
+          if (last) {
+            const existingMain = last[1] ?? ''
+            if (existingMain === 'Transaction') {
+              last[1] = descLine
+            } else {
+              last[1] = `${existingMain} ${descLine}`.trim()
+            }
+          }
         }
       }
     }
