@@ -99,6 +99,30 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     return d.toISOString().slice(0, 10)
   }
 
+  function normalizeHeaderToken(input: string): string {
+    let s = String(input || '').trim().toLowerCase()
+    if (!s) return ''
+    const map: Record<string, string> = {
+      ą: 'a',
+      č: 'c',
+      ę: 'e',
+      ė: 'e',
+      į: 'i',
+      š: 's',
+      ų: 'u',
+      ū: 'u',
+      ž: 'z',
+    }
+    s = s.replace(/[ąčęėįšųūž]/g, (m) => map[m] ?? m)
+    s = s.replace(/\s+/g, ' ')
+    return s
+  }
+
+  function headerHasAny(s: string, needles: string[]): boolean {
+    for (const n of needles) if (s.includes(n)) return true
+    return false
+  }
+
   function buildTransactionsCsvFromMappedRows(mappedRows: string[][]): string[][] {
     const rows = mappedRows.filter((r) => r.some((c) => c.trim().length > 0))
     if (rows.length === 0) return []
@@ -432,35 +456,40 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     }
 
     const headerRowIndex = mappedRows.findIndex((r) => {
-      const s = r.join(' ').toLowerCase()
-      return s.includes('date') && s.includes('description') && s.includes('money out') && s.includes('money in')
+      const s = normalizeHeaderToken(r.join(' '))
+      const hasDate = headerHasAny(s, ['date', 'transaction date', 'posted date', 'data', 'operacijos data'])
+      const hasDesc = headerHasAny(s, ['description', 'details', 'merchant', 'name', 'payee', 'aprasymas', 'pavadinimas', 'mokejimo paskirtis', 'paskirtis'])
+      const hasOut = headerHasAny(s, ['money out', 'paid out', 'debit', 'issiusti pinigai', 'issiusti', 'is siusti'])
+      const hasIn = headerHasAny(s, ['money in', 'paid in', 'credit', 'gauti pinigai', 'gauti'])
+      return hasDate && hasDesc && (hasOut || hasIn)
     })
 
     if (headerRowIndex >= 0) {
       const header = mappedRows[headerRowIndex]
-      const norm = (x: string) => x.trim().toLowerCase()
-      const dateCol = header.findIndex((c) => norm(c) === 'date')
-      const descCol = header.findIndex((c) => norm(c).startsWith('description'))
-      const outCol = header.findIndex((c) => norm(c).includes('money out'))
-      const inCol = header.findIndex((c) => norm(c).includes('money in'))
-      const balCol = header.findIndex((c) => norm(c).includes('balance'))
+      const norm = (x: string) => normalizeHeaderToken(x)
+      const dateCol = header.findIndex((c) => headerHasAny(norm(c), ['date', 'data', 'operacijos data']))
+      const descCol = header.findIndex((c) =>
+        headerHasAny(norm(c), ['description', 'details', 'merchant', 'name', 'payee', 'aprasymas', 'pavadinimas', 'mokejimo paskirtis', 'paskirtis']),
+      )
+      const outCol = header.findIndex((c) => headerHasAny(norm(c), ['money out', 'paid out', 'debit', 'issiusti pinigai', 'issiusti', 'is siusti']))
+      const inCol = header.findIndex((c) => headerHasAny(norm(c), ['money in', 'paid in', 'credit', 'gauti pinigai', 'gauti']))
+      const balCol = header.findIndex((c) => headerHasAny(norm(c), ['balance', 'likutis', 'balansas']))
 
-      if (dateCol >= 0 && descCol >= 0 && outCol >= 0 && inCol >= 0 && balCol >= 0) {
+      const hasTwoMoneyCols = dateCol >= 0 && descCol >= 0 && outCol >= 0 && inCol >= 0
+      const hasBarclaysCols = dateCol >= 0 && descCol >= 0 && outCol >= 0 && inCol >= 0 && balCol >= 0
+
+      if (hasTwoMoneyCols) {
         if (!barclaysHeaderAdded) {
           csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
           barclaysHeaderAdded = true
         }
 
-        const scan = mappedRows.slice(headerRowIndex + 1, headerRowIndex + 1 + 120)
-        const isNumericCell = (v: string) => {
-          const s = v.trim()
-          if (!s) return false
-          return /^-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})$/.test(s) || /^-?\d+(?:[.,]\d{2})$/.test(s)
-        }
-        const bestNumericCol = (from: number, to: number) => {
-          const start = Math.max(0, from)
-          const end = Math.min(mappedRows[0]?.length ?? to, to)
-          let best = start
+        const scan = mappedRows.slice(headerRowIndex + 1, headerRowIndex + 1 + 150)
+        const isNumericCell = (v: string) => parseDecimal(v) != null
+        const bestColAround = (center: number) => {
+          const start = Math.max(0, center - 3)
+          const end = Math.min((mappedRows[0]?.length ?? center + 4), center + 4)
+          let best = center
           let bestScore = -1
           for (let i = start; i < end; i++) {
             let score = 0
@@ -488,59 +517,45 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
           return best
         }
 
-        const outColActual = bestNumericCol(outCol, inCol)
-        const inColActual = bestNumericCol(inCol, balCol)
-        const balColActual = bestNumericCol(balCol, mappedRows[0]?.length ?? balCol + 1)
-        const descColActual = bestTextCol(descCol, outColActual)
+        const outColActual = bestColAround(outCol)
+        const inColActual = bestColAround(inCol)
+        const balColActual = balCol >= 0 ? bestColAround(balCol) : -1
+        const stopTextAt = Math.min(outColActual, inColActual, balColActual >= 0 ? balColActual : Infinity)
+        const descColActual = bestTextCol(descCol, stopTextAt)
 
-        type PendingTx = { dateIso: string; desc: string[]; out: string; inn: string; bal: string }
-        let current: PendingTx | null = null
-        let currentDateIso: string | null = null
-
-        const betweenDescAndOut = (r: string[]) => {
-          const slice = r.slice(descColActual, outColActual).map((x) => x.trim()).filter((x) => x.length > 0)
+        const betweenDescAndStop = (r: string[]) => {
+          const stop = stopTextAt === Infinity ? r.length : stopTextAt
+          const slice = r
+            .slice(descColActual, stop)
+            .map((x) => x.trim())
+            .filter((x) => x.length > 0)
           return slice.join(' ').trim()
-        }
-
-        const flush = () => {
-          if (!current) return
-          const hasAmount = /\d/.test(current.out) || /\d/.test(current.inn)
-          if (!hasAmount || !current.dateIso) {
-            current = null
-            return
-          }
-          const first = current.desc[0] ?? ''
-          const notes = current.desc.slice(1).join(' ').trim()
-          csvRows.push([current.dateIso, first, notes, current.out, current.inn, current.bal])
-          current = null
         }
 
         for (const r of mappedRows.slice(headerRowIndex + 1)) {
           const dateRaw = (r[dateCol] ?? '').trim()
+          const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+          if (!dateIso) continue
+
           const outRaw = (r[outColActual] ?? '').trim()
           const inRaw = (r[inColActual] ?? '').trim()
-          const balRaw = (r[balColActual] ?? '').trim()
-          const descRaw = betweenDescAndOut(r)
-          const anyContent = dateRaw || outRaw || inRaw || balRaw || descRaw
-          if (!anyContent) continue
+          const balRaw = balColActual >= 0 ? (r[balColActual] ?? '').trim() : ''
+          const descRaw = betweenDescAndStop(r)
 
-          if (dateRaw) {
-            currentDateIso = inferIsoDateFromDayMonth(dateRaw) ?? dateRaw
-          }
+          const nOut = parseDecimal(outRaw)
+          const nIn = parseDecimal(inRaw)
+          const hasAmount = (nOut != null && nOut !== 0) || (nIn != null && nIn !== 0)
+          if (!hasAmount) continue
 
-          const startsNew = Boolean(currentDateIso && descRaw && (outRaw || inRaw))
-          if (startsNew) {
-            flush()
-            current = { dateIso: currentDateIso!, desc: [], out: '', inn: '', bal: '' }
-          }
-          if (!current) continue
-
-          if (descRaw) current.desc.push(descRaw)
-          if (outRaw) current.out = outRaw
-          if (inRaw) current.inn = inRaw
-          if (balRaw) current.bal = balRaw
+          const moneyOut = nOut != null && nOut !== 0 ? String(Math.abs(nOut)) : ''
+          const moneyIn = nIn != null && nIn !== 0 ? String(Math.abs(nIn)) : ''
+          const first = descRaw || 'Transaction'
+          csvRows.push([dateIso, first, '', moneyOut, moneyIn, balRaw])
         }
-        flush()
+        continue
+      }
+
+      if (hasBarclaysCols) {
         continue
       }
     }
