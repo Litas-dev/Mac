@@ -554,14 +554,43 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
         }
 
         const forbiddenBase = new Set<number>()
-        if (balCol >= 0) forbiddenBase.add(balCol)
         forbiddenBase.add(dateCol)
         forbiddenBase.add(descCol)
 
-        const outColActual = bestMoneyCol(outCol, forbiddenBase)
-        const forbiddenIn = new Set(forbiddenBase)
+        const fillRatio = (idx: number) => (scan.length ? scoreMoneyCol(idx) / scan.length : 0)
+        const candidateMoneyCols: number[] = []
+        for (let i = 0; i < header.length; i++) {
+          if (forbiddenBase.has(i)) continue
+          if (scoreMoneyCol(i) > 0) candidateMoneyCols.push(i)
+        }
+        const balColActual = (() => {
+          let best = -1
+          let bestScore = -1
+          for (const i of candidateMoneyCols) {
+            const sc = scoreMoneyCol(i)
+            if (sc > bestScore || (sc === bestScore && i > best)) {
+              bestScore = sc
+              best = i
+            }
+          }
+          if (best >= 0 && fillRatio(best) >= 0.6) return best
+          return balCol >= 0 ? balCol : best
+        })()
+
+        const forbiddenMoney = new Set(forbiddenBase)
+        if (balColActual >= 0) forbiddenMoney.add(balColActual)
+
+        let outColActual = bestMoneyCol(outCol, forbiddenMoney)
+        const forbiddenIn = new Set(forbiddenMoney)
         if (outColActual >= 0) forbiddenIn.add(outColActual)
-        const inColActual = bestMoneyCol(inCol, forbiddenIn)
+        let inColActual = bestMoneyCol(inCol, forbiddenIn)
+
+        if (outColActual < 0 || inColActual < 0 || outColActual === inColActual || outColActual > inColActual) {
+          const byX = candidateMoneyCols.filter((i) => i !== balColActual).sort((a, b) => a - b)
+          const lastTwo = byX.slice(-2)
+          outColActual = lastTwo[0] ?? -1
+          inColActual = lastTwo[1] ?? -1
+        }
 
         if (outColActual < 0 || inColActual < 0) {
           // Fall back to generic parser if we can't confidently detect money columns
@@ -601,22 +630,27 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
         }
 
         const pickMoneyNear = (r: string[], center: number, forbidden: Set<number>) => {
-          const candidates = [center, center - 1, center + 1]
-          for (const idx of candidates) {
-            if (idx < 0 || idx >= r.length) continue
-            if (forbidden.has(idx)) continue
-            const v = (r[idx] ?? '').trim()
-            if (isNonZeroMoney(v)) return v
+          const maxOffset = 3
+          let best: { v: string; dist: number } | null = null
+          for (let off = 0; off <= maxOffset; off++) {
+            for (const idx of [center - off, center + off]) {
+              if (idx < 0 || idx >= r.length) continue
+              if (forbidden.has(idx)) continue
+              const v = (r[idx] ?? '').trim()
+              if (!isNonZeroMoney(v)) continue
+              const dist = Math.abs(idx - center)
+              if (!best || dist < best.dist) best = { v, dist }
+            }
           }
-          return (r[center] ?? '').trim()
+          return best?.v ?? (r[center] ?? '').trim()
         }
 
         const forbiddenOut = new Set<number>()
         forbiddenOut.add(inColActual)
-        if (balCol >= 0) forbiddenOut.add(balCol)
+        if (balColActual >= 0) forbiddenOut.add(balColActual)
         const forbiddenIn2 = new Set<number>()
         forbiddenIn2.add(outColActual)
-        if (balCol >= 0) forbiddenIn2.add(balCol)
+        if (balColActual >= 0) forbiddenIn2.add(balColActual)
 
         for (const r of mappedRows.slice(headerRowIndex + 1)) {
           const dateRaw = (r[dateCol] ?? '').trim()
