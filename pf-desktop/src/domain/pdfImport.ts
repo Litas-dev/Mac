@@ -134,56 +134,206 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     const dateCol = pickBest('date', used)
     if (dateCol >= 0) used.add(dateCol)
 
-    const moneyCols: number[] = []
-    for (let k = 0; k < 3; k++) {
-      const idx = pickBest('money', used)
-      if (idx < 0) break
-      used.add(idx)
-      moneyCols.push(idx)
+    const moneyColsAll: number[] = []
+    for (let i = 0; i < width; i++) {
+      if (scores[i]!.money > 0) moneyColsAll.push(i)
     }
 
     const descCol = pickBest('text', used)
 
-    const outCol = moneyCols[0] ?? -1
-    const inCol = moneyCols.length >= 2 ? moneyCols[1]! : -1
-    const balCol = moneyCols.length >= 3 ? moneyCols[2]! : -1
+    if (dateCol < 0 || descCol < 0) return []
+    if (moneyColsAll.length === 0) return []
 
-    if (dateCol < 0 || descCol < 0 || outCol < 0) return []
+    const moneyStats = new Map<number, { fill: number; count: number }>()
+    for (const i of moneyColsAll) moneyStats.set(i, { fill: 0, count: 0 })
 
-    const out: string[][] = [['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance']]
+    for (const r of rows) {
+      for (const i of moneyColsAll) {
+        const v = (r[i] ?? '').trim()
+        if (!v) continue
+        const n = parseDecimal(v)
+        if (n == null) continue
+        const s = moneyStats.get(i)
+        if (!s) continue
+        s.count += 1
+      }
+    }
 
+    for (const i of moneyColsAll) {
+      const s = moneyStats.get(i)!
+      s.fill = rows.length ? s.count / rows.length : 0
+    }
+
+    let balCol = -1
+    if (moneyColsAll.length >= 2) {
+      let bestFill = -1
+      let bestIdx = -1
+      for (const i of moneyColsAll) {
+        const f = moneyStats.get(i)!.fill
+        if (f > bestFill || (f === bestFill && i > bestIdx)) {
+          bestFill = f
+          bestIdx = i
+        }
+      }
+      if (bestFill >= 0.6) balCol = bestIdx
+    }
+
+    type Entry = {
+      dateIso: string
+      dateObj: Date
+      desc: string
+      byCol: Map<number, string>
+      bal: number | null
+      balRaw: string
+    }
+
+    const entries: Entry[] = []
     for (const r of rows) {
       const dateRaw = (r[dateCol] ?? '').trim()
       const descRaw = (r[descCol] ?? '').trim()
-      const outRaw = outCol >= 0 ? (r[outCol] ?? '').trim() : ''
-      const inRaw = inCol >= 0 ? (r[inCol] ?? '').trim() : ''
+      const iso = dateRaw ? asIsoDate(dateRaw) : null
+      if (!iso) continue
+      const d = new Date(iso + 'T00:00:00Z')
+      if (!Number.isFinite(d.getTime())) continue
+      const byCol = new Map<number, string>()
+      for (const i of moneyColsAll) {
+        const v = (r[i] ?? '').trim()
+        if (v) byCol.set(i, v)
+      }
       const balRaw = balCol >= 0 ? (r[balCol] ?? '').trim() : ''
+      const bal = balCol >= 0 ? (parseDecimal(balRaw) ?? null) : null
+      entries.push({ dateIso: iso, dateObj: d, desc: descRaw, byCol, bal, balRaw })
+    }
 
-      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
-      if (!dateIso) continue
+    if (entries.length === 0) return []
 
-      let moneyOut = outRaw
-      let moneyIn = inRaw
-      if (inCol < 0) {
-        const n = parseDecimal(outRaw)
-        if (n == null) continue
-        if (n < 0) {
-          moneyOut = String(Math.abs(n))
-          moneyIn = ''
-        } else if (n > 0) {
-          moneyOut = ''
-          moneyIn = String(Math.abs(n))
-        } else {
-          continue
+    entries.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+
+    const tol = 0.05
+    const debitScore = new Map<number, number>()
+    const creditScore = new Map<number, number>()
+    for (const i of moneyColsAll) {
+      if (i === balCol) continue
+      debitScore.set(i, 0)
+      creditScore.set(i, 0)
+    }
+
+    if (balCol >= 0) {
+      for (let i = 1; i < entries.length; i++) {
+        const prev = entries[i - 1]!
+        const cur = entries[i]!
+        if (prev.bal == null || cur.bal == null) continue
+        const delta = cur.bal - prev.bal
+        if (Math.abs(delta) < tol) continue
+        for (const col of moneyColsAll) {
+          if (col === balCol) continue
+          const raw = cur.byCol.get(col) ?? ''
+          const n = raw ? parseDecimal(raw) : null
+          if (n == null) continue
+          const v = Math.abs(n)
+          if (delta < 0) {
+            if (Math.abs(v - Math.abs(delta)) <= tol) {
+              debitScore.set(col, (debitScore.get(col) ?? 0) + 1)
+            }
+          } else if (delta > 0) {
+            if (Math.abs(v - Math.abs(delta)) <= tol) {
+              creditScore.set(col, (creditScore.get(col) ?? 0) + 1)
+            }
+          }
+        }
+      }
+    }
+
+    const remaining = moneyColsAll.filter((c) => c !== balCol)
+
+    const pickBestCol = (m: Map<number, number>, exclude: Set<number>) => {
+      let best = -1
+      let bestScore = -1
+      for (const [k, v] of m.entries()) {
+        if (exclude.has(k)) continue
+        if (v > bestScore) {
+          bestScore = v
+          best = k
+        }
+      }
+      return bestScore > 0 ? best : -1
+    }
+
+    const usedMoney = new Set<number>()
+    let outCol = pickBestCol(debitScore, usedMoney)
+    if (outCol >= 0) usedMoney.add(outCol)
+    let inCol = pickBestCol(creditScore, usedMoney)
+    if (inCol >= 0) usedMoney.add(inCol)
+
+    if (outCol < 0 && inCol < 0) {
+      const sorted = remaining
+        .map((c) => ({ c, fill: moneyStats.get(c)!.fill }))
+        .sort((a, b) => a.fill - b.fill || a.c - b.c)
+        .map((x) => x.c)
+      outCol = sorted[0] ?? -1
+      inCol = sorted[1] ?? -1
+    } else if (outCol < 0 && remaining.length > 0) {
+      outCol = remaining[0]!
+      if (outCol === inCol) outCol = remaining.find((c) => c !== inCol) ?? outCol
+    } else if (inCol < 0 && remaining.length > 0) {
+      inCol = remaining.find((c) => c !== outCol) ?? -1
+    }
+
+    if (outCol < 0) return []
+
+    const out: string[][] = [['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance']]
+
+    const balanceByDate = new Map<string, number>()
+    if (balCol >= 0) {
+      for (const e of entries) {
+        if (e.bal != null) balanceByDate.set(e.dateIso + '|' + e.desc, e.bal)
+      }
+    }
+
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i]!
+      const prev = i > 0 ? entries[i - 1]! : null
+      const delta = prev?.bal != null && e.bal != null ? e.bal - prev.bal : null
+
+      const outRaw = outCol >= 0 ? (e.byCol.get(outCol) ?? '').trim() : ''
+      const inRaw = inCol >= 0 ? (e.byCol.get(inCol) ?? '').trim() : ''
+      const balRaw = e.balRaw
+
+      let moneyOut = ''
+      let moneyIn = ''
+
+      const nOut = outRaw ? parseDecimal(outRaw) : null
+      const nIn = inRaw ? parseDecimal(inRaw) : null
+
+      if (inCol >= 0 && (nOut != null || nIn != null)) {
+        if (nOut != null && nOut !== 0) moneyOut = String(Math.abs(nOut))
+        if (nIn != null && nIn !== 0) moneyIn = String(Math.abs(nIn))
+        if (!moneyOut && !moneyIn && delta != null) {
+          const v = nOut != null ? Math.abs(nOut) : nIn != null ? Math.abs(nIn) : 0
+          if (v) {
+            if (delta < 0) moneyOut = String(v)
+            else if (delta > 0) moneyIn = String(v)
+          }
         }
       } else {
-        const nOut = parseDecimal(moneyOut)
-        const nIn = parseDecimal(moneyIn)
-        if ((nOut == null || nOut === 0) && (nIn == null || nIn === 0)) continue
+        const n = nOut
+        if (n == null || n === 0) continue
+        const v = Math.abs(n)
+        if (delta != null) {
+          if (delta < 0) moneyOut = String(v)
+          else if (delta > 0) moneyIn = String(v)
+          else continue
+        } else if (n < 0) {
+          moneyOut = String(v)
+        } else {
+          moneyIn = String(v)
+        }
       }
 
-      const first = descRaw || 'Transaction'
-      out.push([dateIso, first, '', moneyOut, moneyIn, balRaw])
+      if (!moneyOut && !moneyIn) continue
+
+      const first = e.desc || 'Transaction'
+      out.push([e.dateIso, first, '', moneyOut, moneyIn, balRaw])
     }
 
     return out.length > 1 ? out : []
