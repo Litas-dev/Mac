@@ -363,6 +363,101 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     return rows.length ? rows : null
   }
 
+  function parseInOutTablePage(items: PositionedText[]): string[][] | null {
+    const lines = groupByY(items, 3.5)
+    const headerLineIndex = lines.findIndex((line) => {
+      const s = normalizeHeaderToken(line.map((x) => x.str).join(' '))
+      const hasDate = s.includes('date') || s.includes('data')
+      const hasDesc = s.includes('description') || s.includes('transaction') || s.includes('aprasymas')
+      const hasOut = s.includes('money out') || s.includes('paid out') || (s.includes('out') && s.includes('money'))
+      const hasIn = s.includes('money in') || s.includes('paid in') || (s.includes('in') && s.includes('money'))
+      const hasBal = s.includes('balance') || s.includes('likutis') || s.includes('balansas')
+      return hasDate && hasDesc && hasOut && hasIn && hasBal
+    })
+    if (headerLineIndex < 0) return null
+
+    const headerLine = lines[headerLineIndex]!
+    const xDate = findHeaderX(headerLine, (s) => s === 'date' || s === 'data')
+    const xDesc = findHeaderX(headerLine, (s) => s === 'transaction' || s === 'description' || s === 'aprasymas' || s.includes('description'))
+    const xType = findHeaderX(headerLine, (s) => s === 'type')
+    const xOut = findHeaderX(headerLine, (s) => s.includes('money out') || s.includes('paid out') || s === 'out')
+    const xIn = findHeaderX(headerLine, (s) => s.includes('money in') || s.includes('paid in') || s === 'in')
+    const xBal = findHeaderX(headerLine, (s) => s.includes('balance') || s.includes('likutis') || s.includes('balansas'))
+    if (xDate == null || xDesc == null || xOut == null || xIn == null || xBal == null) return null
+
+    const cols = [
+      { key: 'date', x: xDate },
+      { key: 'desc', x: xDesc },
+      ...(xType != null ? [{ key: 'type' as const, x: xType }] : []),
+      { key: 'out', x: xOut },
+      { key: 'in', x: xIn },
+      { key: 'bal', x: xBal },
+    ].sort((a, b) => a.x - b.x)
+    const boundaries: number[] = []
+    for (let i = 0; i < cols.length - 1; i++) boundaries.push((cols[i]!.x + cols[i + 1]!.x) / 2)
+
+    const assignCol = (x: number) => {
+      for (let i = 0; i < boundaries.length; i++) {
+        if (x < boundaries[i]!) return cols[i]!.key
+      }
+      return cols[cols.length - 1]!.key
+    }
+
+    const rows: string[][] = []
+    let carryDateIso: string | null = null
+    let currentMain: string | null = null
+    let currentNotes: string[] = []
+
+    const flush = (outRaw: string, inRaw: string) => {
+      const nOut = parseDecimal(outRaw)
+      const nIn = parseDecimal(inRaw)
+      const hasOut = nOut != null && nOut !== 0
+      const hasIn = nIn != null && nIn !== 0
+      if (!hasOut && !hasIn) return
+      if (!carryDateIso) return
+      const moneyOut = hasOut ? String(Math.abs(nOut!)) : ''
+      const moneyIn = hasIn ? String(Math.abs(nIn!)) : ''
+      const desc = (currentMain ?? '').trim()
+      const notes = currentNotes.join(' ').trim()
+      const first = desc || notes || 'Transaction'
+      rows.push([carryDateIso, first, notes && first !== notes ? notes : '', moneyOut, moneyIn, ''])
+      currentMain = null
+      currentNotes = []
+    }
+
+    for (let li = headerLineIndex + 1; li < lines.length; li++) {
+      const line = lines[li]!
+      const by: Record<string, PositionedText[]> = { date: [], desc: [], type: [], out: [], in: [], bal: [] }
+      for (const it of line) {
+        const k = assignCol(it.x)
+        by[k]!.push(it)
+      }
+      for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
+
+      const dateRaw = by.date.map((x) => x.str).join(' ').trim()
+      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+      if (dateIso) carryDateIso = dateIso
+
+      const descLine = by.desc.map((x) => x.str).join(' ').trim()
+      const typeLine = by.type.map((x) => x.str).join(' ').trim()
+      const normDesc = normalizeHeaderToken(descLine)
+      if (normDesc.includes('balance brought forward')) continue
+
+      if (descLine) {
+        if (!currentMain && isMainDescriptionLine(descLine)) currentMain = descLine
+        else currentNotes.push(descLine)
+      }
+      if (typeLine) currentNotes.push(typeLine)
+
+      const outRaw = by.out.map((x) => x.str).join('').trim()
+      const inRaw = by.in.map((x) => x.str).join('').trim()
+      const hasMoney = (parseDecimal(outRaw) != null && parseDecimal(outRaw) !== 0) || (parseDecimal(inRaw) != null && parseDecimal(inRaw) !== 0)
+      if (hasMoney) flush(outRaw, inRaw)
+    }
+
+    return rows.length ? rows : null
+  }
+
   function parseMonzoBankPage(items: PositionedText[]): string[][] | null {
     const lines = groupByY(items, 3.5)
     const headerLineIndex = lines.findIndex((line) => {
@@ -718,6 +813,16 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       y: it.transform[5] ?? 0,
       h: Math.abs(it.transform[3] ?? 0),
     }))
+
+    const inOutTable = parseInOutTablePage(positioned)
+    if (inOutTable && inOutTable.length) {
+      if (!barclaysHeaderAdded) {
+        csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
+        barclaysHeaderAdded = true
+      }
+      csvRows.push(...inOutTable)
+      continue
+    }
 
     const metro = parseMetroBankPage(positioned)
     if (metro && metro.length) {
