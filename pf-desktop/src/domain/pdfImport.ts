@@ -145,6 +145,21 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     if (!raw) return false
     const s = normalizeHeaderToken(raw)
     if (!s) return false
+    const headerWords = new Set([
+      'date',
+      'data',
+      'description',
+      'transaction',
+      'type',
+      'money in',
+      'money out',
+      'paid in',
+      'paid out',
+      'balance',
+      'likutis',
+      'balansas',
+    ])
+    if (headerWords.has(s)) return false
     if (s.startsWith('kam:')) return false
     if (s.startsWith('kortele')) return false
     if (s.startsWith('kortel')) return false
@@ -425,6 +440,26 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       currentNotes = []
     }
 
+    const isHeaderRow = (dateRaw: string, descRaw: string, typeRaw: string, outRaw: string, inRaw: string) => {
+      const d = normalizeHeaderToken(dateRaw)
+      const de = normalizeHeaderToken(descRaw)
+      const t = normalizeHeaderToken(typeRaw)
+      const o = normalizeHeaderToken(outRaw)
+      const i = normalizeHeaderToken(inRaw)
+      if (d === 'date' && de === 'description') return true
+      if (d === 'date' && de === 'transaction') return true
+      if (de === 'description' && (t === 'type' || o.includes('money out') || i.includes('money in'))) return true
+      if (o.includes('money in') || i.includes('money out')) return true
+      return false
+    }
+
+    const cleanCell = (s: string) => {
+      let v = String(s || '').trim()
+      v = v.replace(/^\\.+\\s*/, '').replace(/\\s*\\.+$/, '').trim()
+      v = v.replace(/\\s+/g, ' ').trim()
+      return v
+    }
+
     for (let li = headerLineIndex + 1; li < lines.length; li++) {
       const line = lines[li]!
       const by: Record<string, PositionedText[]> = { date: [], desc: [], type: [], out: [], in: [], bal: [] }
@@ -434,14 +469,15 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
       for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
 
-      const dateRaw = by.date.map((x) => x.str).join(' ').trim()
+      const dateRaw = cleanCell(by.date.map((x) => x.str).join(' '))
       const dateIso = dateRaw ? asIsoDate(dateRaw) : null
       if (dateIso) carryDateIso = dateIso
 
-      const descLine = by.desc.map((x) => x.str).join(' ').trim()
-      const typeLine = by.type.map((x) => x.str).join(' ').trim()
+      const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
+      const typeLine = cleanCell(by.type.map((x) => x.str).join(' '))
       const normDesc = normalizeHeaderToken(descLine)
       if (normDesc.includes('balance brought forward')) continue
+      if (isHeaderRow(dateRaw, descLine, typeLine, by.out.map((x) => x.str).join(' '), by.in.map((x) => x.str).join(' '))) continue
 
       if (descLine) {
         if (!currentMain && isMainDescriptionLine(descLine)) currentMain = descLine
@@ -449,8 +485,8 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
       if (typeLine) currentNotes.push(typeLine)
 
-      const outRaw = by.out.map((x) => x.str).join('').trim()
-      const inRaw = by.in.map((x) => x.str).join('').trim()
+      const outRaw = cleanCell(by.out.map((x) => x.str).join(''))
+      const inRaw = cleanCell(by.in.map((x) => x.str).join(''))
       const hasMoney = (parseDecimal(outRaw) != null && parseDecimal(outRaw) !== 0) || (parseDecimal(inRaw) != null && parseDecimal(inRaw) !== 0)
       if (hasMoney) flush(outRaw, inRaw)
     }
