@@ -138,6 +138,136 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     return -1
   }
 
+  type PositionedText = { str: string; x: number; y: number; h: number }
+
+  function isMainDescriptionLine(input: string): boolean {
+    const raw = String(input || '').trim()
+    if (!raw) return false
+    const s = normalizeHeaderToken(raw)
+    if (!s) return false
+    if (s.startsWith('kam:')) return false
+    if (s.startsWith('kortele')) return false
+    if (s.startsWith('kortel')) return false
+    if (s.startsWith('nuroda')) return false
+    if (s.startsWith('is:')) return false
+    if (s.startsWith('i:')) return false
+    if (s.includes('kortele:')) return false
+    return true
+  }
+
+  function groupByY(items: PositionedText[], tolerance: number): PositionedText[][] {
+    const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x)
+    const groups: PositionedText[][] = []
+    let current: PositionedText[] = []
+    let currentY: number | null = null
+    for (const it of sorted) {
+      if (currentY == null) {
+        currentY = it.y
+        current = [it]
+        continue
+      }
+      if (Math.abs(it.y - currentY) <= tolerance) {
+        current.push(it)
+      } else {
+        groups.push(current)
+        currentY = it.y
+        current = [it]
+      }
+    }
+    if (current.length) groups.push(current)
+    for (const g of groups) g.sort((a, b) => a.x - b.x)
+    return groups
+  }
+
+  function findHeaderX(lineItems: PositionedText[], predicate: (norm: string) => boolean): number | null {
+    let best: number | null = null
+    for (const it of lineItems) {
+      const norm = normalizeHeaderToken(it.str)
+      if (!norm) continue
+      if (!predicate(norm)) continue
+      if (best == null || it.x < best) best = it.x
+    }
+    return best
+  }
+
+  function parseRevolutLtPage(items: PositionedText[]): string[][] | null {
+    const lines = groupByY(items, 3.5)
+    const headerLineIndex = lines.findIndex((line) => {
+      const s = normalizeHeaderToken(line.map((x) => x.str).join(' '))
+      const hasDate = s.includes('data') || s.includes('date')
+      const hasDesc = s.includes('aprasymas') || s.includes('description')
+      const hasOut = s.includes('issiusti') || s.includes('money out')
+      const hasIn = s.includes('gauti') || s.includes('money in')
+      const hasBal = s.includes('likutis') || s.includes('balance') || s.includes('balansas')
+      return hasDate && hasDesc && hasBal && (hasOut || hasIn)
+    })
+    if (headerLineIndex < 0) return null
+
+    const headerLine = lines[headerLineIndex]!
+    const xDate = findHeaderX(headerLine, (s) => s === 'data' || s === 'date')
+    const xDesc = findHeaderX(headerLine, (s) => s === 'aprasymas' || s.includes('description'))
+    const xOut = findHeaderX(headerLine, (s) => s.includes('issiusti') || s.includes('money out') || s.includes('paid out') || s.includes('debit'))
+    const xIn = findHeaderX(headerLine, (s) => s.includes('gauti') || s.includes('money in') || s.includes('paid in') || s.includes('credit'))
+    const xBal = findHeaderX(headerLine, (s) => s.includes('likutis') || s.includes('balance') || s.includes('balansas'))
+    if (xDate == null || xDesc == null || xOut == null || xIn == null || xBal == null) return null
+
+    const cols = [
+      { key: 'date', x: xDate },
+      { key: 'desc', x: xDesc },
+      { key: 'out', x: xOut },
+      { key: 'in', x: xIn },
+      { key: 'bal', x: xBal },
+    ].sort((a, b) => a.x - b.x)
+    const boundaries: number[] = []
+    for (let i = 0; i < cols.length - 1; i++) boundaries.push((cols[i]!.x + cols[i + 1]!.x) / 2)
+
+    const assignCol = (x: number) => {
+      for (let i = 0; i < boundaries.length; i++) {
+        if (x < boundaries[i]!) return cols[i]!.key
+      }
+      return cols[cols.length - 1]!.key
+    }
+
+    const rows: string[][] = []
+    let carryDateIso: string | null = null
+    let currentDesc: string | null = null
+
+    for (let li = headerLineIndex + 1; li < lines.length; li++) {
+      const line = lines[li]!
+      const by: Record<string, PositionedText[]> = { date: [], desc: [], out: [], in: [], bal: [] }
+      for (const it of line) {
+        const k = assignCol(it.x)
+        by[k]!.push(it)
+      }
+      for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
+
+      const dateRaw = by.date.map((x) => x.str).join(' ').trim()
+      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+      if (dateIso) carryDateIso = dateIso
+
+      const descLine = by.desc.map((x) => x.str).join(' ').trim()
+      if (descLine && isMainDescriptionLine(descLine)) currentDesc = descLine
+
+      const outRaw = by.out.map((x) => x.str).join('').trim()
+      const inRaw = by.in.map((x) => x.str).join('').trim()
+
+      const nOut = parseDecimal(outRaw)
+      const nIn = parseDecimal(inRaw)
+      const hasOut = nOut != null && nOut !== 0
+      const hasIn = nIn != null && nIn !== 0
+      if (!hasOut && !hasIn) continue
+      if (!carryDateIso) continue
+
+      const moneyOut = hasOut ? String(Math.abs(nOut!)) : ''
+      const moneyIn = hasIn ? String(Math.abs(nIn!)) : ''
+      const first = (currentDesc ?? descLine).trim() || 'Transaction'
+      rows.push([carryDateIso, first, '', moneyOut, moneyIn, ''])
+      currentDesc = null
+    }
+
+    return rows.length ? rows : null
+  }
+
   function findHeaderIndexSplit(headerNorm: string[], leftNeedles: string[], rightNeedles: string[]): number {
     for (let i = 0; i < headerNorm.length - 1; i++) {
       const a = headerNorm[i] ?? ''
@@ -397,6 +527,23 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     // Filter and normalize items
     const items = (content.items as PdfTextItem[]).filter(it => it.str.trim().length > 0)
     if (items.length === 0) continue
+
+    const positioned: PositionedText[] = items.map((it) => ({
+      str: it.str,
+      x: it.transform[4] ?? 0,
+      y: it.transform[5] ?? 0,
+      h: Math.abs(it.transform[3] ?? 0),
+    }))
+
+    const revolut = parseRevolutLtPage(positioned)
+    if (revolut && revolut.length) {
+      if (!barclaysHeaderAdded) {
+        csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
+        barclaysHeaderAdded = true
+      }
+      csvRows.push(...revolut)
+      continue
+    }
 
     if (!period) {
       const pageText = items.map((it) => it.str).join(' ')
