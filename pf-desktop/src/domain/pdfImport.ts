@@ -611,15 +611,24 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       const dateIso = dateRaw ? (asIsoDateDmySlash(dateRaw) ?? asIsoDate(dateRaw)) : null
       if (dateIso) lastDateIso = dateIso
 
-      const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
+      const descLineRaw = cleanCell(by.desc.map((x) => x.str).join(' '))
       const amtRaw = cleanCell(by.amount.map((x) => x.str).join(''))
 
-      if (isHeaderRow(dateRaw, descLine, amtRaw)) continue
+      if (isHeaderRow(dateRaw, descLineRaw, amtRaw)) continue
 
       const nAmt = parseDecimal(amtRaw)
       const hasAmount = nAmt != null && nAmt !== 0
 
       const effectiveDate = dateIso ?? lastDateIso
+
+      const dateExtras = cleanCell(
+        by.date
+          .map((x) => cleanCell(x.str))
+          .filter((s) => s.length > 0)
+          .filter((s) => asIsoDateDmySlash(s) == null && asIsoDate(s) == null)
+          .join(' '),
+      )
+      const descLine = cleanCell([descLineRaw, dateExtras].filter((x) => x.length > 0).join(' '))
 
       if (hasAmount && effectiveDate) {
         pushTx(effectiveDate, descLine, amtRaw, [])
