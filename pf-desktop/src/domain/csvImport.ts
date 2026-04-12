@@ -204,7 +204,7 @@ export function parseDate(input?: string): Date | undefined {
   const normalized = trimmed.replace(/\./g, '/')
   
   // Strict ISO or YYYY/MM/DD
-  const isoMatch = normalized.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/)
+  const isoMatch = normalized.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/)
   if (isoMatch) {
     return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
   }
