@@ -16,6 +16,10 @@ build/
 *.pdf
 *.PDF
 
+# Local-only app sources / scripts
+Sources/
+generate_deploy.py
+
 # Xcode
 DerivedData/
 *.xcuserstate
