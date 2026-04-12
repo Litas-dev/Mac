@@ -2,8 +2,25 @@
 
 Kivana is a cross-platform desktop app (Tauri + React) for tracking bills, incomes, accounts, goals, debts, and basic reporting.
 
+## Download / Install
+Installers and update artifacts are published in the releases repo:
+
+https://github.com/Litas-dev/Kivana/releases/latest
+
+Assets you typically want:
+- macOS: `.dmg`
+- Windows: `.msi`
+
+## Updates
+Kivana uses the Tauri updater.
+- In the app: Settings → Updates → Check for updates
+- Updater index: https://github.com/Litas-dev/Kivana/releases/latest/download/latest.json
+
+## Source Code
+This repository contains the source code. Releases are produced by a GitHub Actions workflow in this repo and uploaded to the releases repo above.
+
 ## Version
-- Current: 0.1.1
+- Current: 0.2.4
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 
 ## Features
@@ -29,6 +46,9 @@ To produce installers/bundles:
 cd pf-desktop
 npm run tauri:build
 ```
+
+## License
+This project is not open source. No license is granted for copying, modifying, or redistributing without explicit permission from the author.
 
 ## Data Storage
 - Data is stored locally on disk (JSON under the app data directory).
