@@ -4,7 +4,12 @@ import type { BillCategory, Transaction, TransactionKind, UUID } from '../../dom
 import { currency } from '../../domain/finance'
 import { fromDateInputValue, toDateInputValue } from '../date'
 import { parseCsvRows, rowsToTransactions } from '../../domain/csvImport'
-import { parsePdfRows, pdfRowsToTransactions, convertPdfToCsvString } from '../../domain/pdfImport'
+import {
+  type PdfImportFormat,
+  convertPdfToCsvString,
+  parsePdfRowsWithOptions,
+  pdfRowsToTransactions,
+} from '../../domain/pdfImport'
 import { useContextMenu } from '../ContextMenu'
 import { MenuSelect } from '../MenuSelect'
 import { TransactionKindIcon } from '../icons'
@@ -44,6 +49,7 @@ export function TransactionsView() {
   const [wizardCustomName, setWizardCustomName] = useState('')
   const [importingPdf, setImportingPdf] = useState(false)
   const [convertingPdf, setConvertingPdf] = useState(false)
+  const [pdfFormat, setPdfFormat] = useState<PdfImportFormat>('auto')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const pdfInputRef = useRef<HTMLInputElement | null>(null)
   const convertPdfInputRef = useRef<HTMLInputElement | null>(null)
@@ -404,6 +410,17 @@ export function TransactionsView() {
     if (!selected) return
     if (!window.confirm('Delete transaction?')) return
     dispatch({ type: 'transactions/delete', id: selected.id })
+  }
+
+  function deleteAllTransactions() {
+    const n = state.transactions.length
+    if (n === 0) return
+    if (!window.confirm(`Delete ALL ${n.toLocaleString()} transactions? This cannot be undone.`)) return
+    const typed = (window.prompt('Type DELETE ALL to confirm') ?? '').trim()
+    if (typed !== 'DELETE ALL') return
+    dispatch({ type: 'transactions/clearAll' })
+    setSelectedIds(new Set())
+    window.alert('All transactions deleted.')
   }
 
   function updateSelected(patch: Partial<Transaction>) {
@@ -835,7 +852,7 @@ export function TransactionsView() {
     if (!file) return
     setImportingPdf(true)
     try {
-      const rows = await parsePdfRows(file)
+      const rows = await parsePdfRowsWithOptions(file, { format: pdfFormat })
       const activeAccounts = state.accounts.filter((a) => !a.archived)
       const resolveAccountId = (raw: string | undefined): UUID | null => {
         const normalized = (raw ?? '').trim()
@@ -878,7 +895,7 @@ export function TransactionsView() {
     if (!file) return
     setConvertingPdf(true)
     try {
-      const csvString = await convertPdfToCsvString(file)
+      const csvString = await convertPdfToCsvString(file, { format: pdfFormat })
       const defaultName = file.name.replace(/\.pdf$/i, '.csv')
       if (isTauriRuntime()) {
         const { save } = await import('@tauri-apps/plugin-dialog')
@@ -1057,11 +1074,15 @@ export function TransactionsView() {
     for (const t of state.transactions) byId.set(t.id, t)
     const tx: Transaction[] = []
     let total = 0
+    let minDate: Date | null = null
+    let maxDate: Date | null = null
     for (const id of g.ids) {
       const t = byId.get(id)
       if (!t) continue
       tx.push(t)
       if (t.kind === 'expense') total += t.amount.value
+      if (!minDate || t.date < minDate) minDate = t.date
+      if (!maxDate || t.date > maxDate) maxDate = t.date
     }
     tx.sort((a, b) => b.date.getTime() - a.date.getTime())
     return {
@@ -1069,6 +1090,8 @@ export function TransactionsView() {
       count: g.count,
       total,
       sample: tx.slice(0, 6),
+      minDate,
+      maxDate,
       isLast: wizardIndex >= wizardGroups.length - 1,
       stepLabel: `Step ${wizardIndex + 1} of ${wizardGroups.length}`,
     }
@@ -1083,22 +1106,59 @@ export function TransactionsView() {
             if (e.target === e.currentTarget) closeCategorizeWizard()
           }}
         >
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(760px, calc(100vw - 32px))' }}>
             <div className="modalTitle">Categorize Transactions</div>
             <div className="note">{wizardCurrentSummary.stepLabel}</div>
             <div className="groupBox" style={{ marginTop: 12 }}>
               <div className="groupTitle">Payee group</div>
-              <div className="note">
+              <div className="note" style={{ wordBreak: 'break-word' }}>
                 {wizardCurrentSummary.payeeKey} • {wizardCurrentSummary.count} transactions • Total {currency(wizardCurrentSummary.total, state.settings.displayCurrencyCode)}
+                {wizardCurrentSummary.minDate && wizardCurrentSummary.maxDate
+                  ? ` • ${toDateInputValue(wizardCurrentSummary.minDate)} → ${toDateInputValue(wizardCurrentSummary.maxDate)}`
+                  : ''}
               </div>
-              <div className="list" style={{ marginTop: 10, maxHeight: 160, overflowY: 'auto' }}>
+              <div className="list" style={{ marginTop: 10, maxHeight: 240, overflowY: 'auto' }}>
                 {wizardCurrentSummary.sample.map((t) => (
-                  <div key={t.id} className="listItem stdRow" style={{ padding: '8px 12px' }}>
-                    <div className="rowMain">
-                      <div className="rowTitleText">{txnTitle(t)}</div>
-                      <div className="rowMeta">{toDateInputValue(t.date)}</div>
+                  <div key={t.id} className="listItem" style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'start' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 650,
+                            color: 'var(--text-h)',
+                            whiteSpace: 'normal',
+                            overflowWrap: 'anywhere',
+                            lineHeight: 1.25,
+                          }}
+                          title={txnTitle(t)}
+                        >
+                          {txnTitle(t)}
+                        </div>
+                        {t.notes && t.notes.trim() ? (
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: 12,
+                              color: 'var(--muted)',
+                              whiteSpace: 'normal',
+                              overflowWrap: 'anywhere',
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            {t.notes}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                        <div className="rowAmount" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {currency(signedAmount(t), t.amount.currencyCode)}
+                        </div>
+                        <div className="rowMeta" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {toDateInputValue(t.date)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="rowAmount">{currency(signedAmount(t), t.amount.currencyCode)}</div>
                   </div>
                 ))}
               </div>
@@ -1172,6 +1232,19 @@ export function TransactionsView() {
           </div>
           <div className="rowActions">
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" style={{ width: 180 }} />
+              <MenuSelect
+                value={pdfFormat}
+                options={[
+                  { value: 'auto', label: 'PDF: Auto' },
+                  { value: 'monzo', label: 'PDF: Monzo' },
+                  { value: 'revolut-lt', label: 'PDF: Revolut (LT)' },
+                  { value: 'metro', label: 'PDF: Metro' },
+                  { value: 'inout-table', label: 'PDF: Table (In/Out)' },
+                  { value: 'generic', label: 'PDF: Generic' },
+                ]}
+                onChange={(v) => setPdfFormat(v)}
+                width={220}
+              />
               <button type="button" onClick={importCsvClick}>
                 Import CSV
               </button>
@@ -1186,6 +1259,9 @@ export function TransactionsView() {
               </button>
               <button type="button" onClick={createTransaction} className="btnPrimary">
                 Add
+              </button>
+              <button type="button" onClick={deleteAllTransactions} disabled={state.transactions.length === 0} className="btnDanger">
+                Delete All
               </button>
               <button type="button" onClick={deleteSelected} disabled={!selected} className="btnDanger">
                 Delete
@@ -1382,7 +1458,10 @@ export function TransactionsView() {
                 value={categoryFilter}
                 options={[
                   { value: 'all', label: 'All' },
-                  ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                  { value: 'cat:other', label: 'Other (uncategorized)' },
+                  ...categories
+                    .filter((c) => c !== 'other')
+                    .map((c) => ({ value: `cat:${c}` as any, label: c })),
                   ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
                 ]}
                 onChange={(v) => setCategoryFilter(v as any)}
@@ -1435,7 +1514,7 @@ export function TransactionsView() {
         </div>
       </div>
 
-      <div className={showEditor ? 'split' : 'split noDetail'}>
+      <div className={showEditor ? 'split stickyDetail' : 'split noDetail'}>
         <div className="list">
           {isListGated ? (
             <div className="empty">
@@ -1668,39 +1747,6 @@ export function TransactionsView() {
                       />
                     </label>
                   </div>
-                </div>
-
-                <div className="groupBox">
-                  <div className="groupTitle">Accounts</div>
-                  <label className="field">
-                    <div className="fieldLabel">Account</div>
-                    <MenuSelect
-                      value={(selected.accountId ?? '') as any}
-                      placeholder="None"
-                      options={[
-                        { value: '' as any, label: 'None' },
-                        ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
-                      ]}
-                      onChange={(v) => updateSelected({ accountId: v ? (v as UUID) : null })}
-                      width={360}
-                    />
-                  </label>
-
-                  {selected.kind === 'transfer' ? (
-                    <label className="field">
-                      <div className="fieldLabel">To Account</div>
-                      <MenuSelect
-                        value={(selected.toAccountId ?? '') as any}
-                        placeholder="None"
-                        options={[
-                          { value: '' as any, label: 'None' },
-                          ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
-                        ]}
-                        onChange={(v) => updateSelected({ toAccountId: v ? (v as UUID) : null })}
-                        width={360}
-                      />
-                    </label>
-                  ) : null}
                 </div>
 
                 {selected.kind === 'expense' ? (

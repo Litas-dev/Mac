@@ -63,6 +63,7 @@ export type AppAction =
   | { type: 'transactions/update'; transaction: Transaction }
   | { type: 'transactions/bulkUpdate'; transactions: Transaction[] }
   | { type: 'transactions/delete'; id: UUID }
+  | { type: 'transactions/clearAll' }
   | { type: 'invoices/add'; invoice: Invoice }
   | { type: 'invoices/update'; invoice: Invoice }
   | { type: 'invoices/delete'; id: UUID }

@@ -200,55 +200,39 @@ export function parseDate(input?: string): Date | undefined {
   const trimmed = input.trim()
   if (!trimmed) return undefined
 
+  // 1. Try explicit DMY or MDY slash formats first to avoid JS Date fallback mixing them up
+  const normalized = trimmed.replace(/\./g, '/')
+  
+  // Strict ISO or YYYY/MM/DD
+  const isoMatch = normalized.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/)
+  if (isoMatch) {
+    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
+  }
+
+  // DD/MM/YYYY or MM/DD/YYYY (UK/Europe preference: assume DD/MM/YYYY unless month > 12)
+  const slashMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (slashMatch) {
+    let a = Number(slashMatch[1])
+    let b = Number(slashMatch[2])
+    let y = Number(slashMatch[3])
+    if (y < 100) y += 2000
+    
+    // If first number is > 12, it MUST be DD/MM/YYYY
+    if (a > 12) {
+      return new Date(y, b - 1, a)
+    }
+    // If second number is > 12, it MUST be MM/DD/YYYY
+    if (b > 12) {
+      return new Date(y, a - 1, b)
+    }
+    // Otherwise, it's ambiguous (e.g. 05/06/2026). 
+    // In Europe/UK (like Monzo/Barclays), it's DD/MM/YYYY. We'll default to DD/MM/YYYY.
+    return new Date(y, b - 1, a)
+  }
+
+  // 2. Fallback to native JS parsing (handles "12 Jan 2026", etc)
   const iso = new Date(trimmed)
   if (Number.isFinite(iso.getTime())) return iso
-
-  const normalized = trimmed.replace(/\./g, '/')
-  if (trimmed.includes('.')) {
-    const parts = normalized.split('/')
-    if (parts.length === 3) {
-      const d = Number(parts[0])
-      const mo = Number(parts[1])
-      let y = Number(parts[2])
-      if (Number.isFinite(d) && Number.isFinite(mo) && Number.isFinite(y)) {
-        if (y < 100) y = 2000 + y
-        return new Date(y, mo - 1, d)
-      }
-    }
-  }
-  if (normalized.includes('/')) {
-    const parts = normalized.split('/')
-    if (parts.length === 3) {
-      const a = Number(parts[0])
-      const b = Number(parts[1])
-      const y = Number(parts[2])
-      if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(y)) {
-        if (a > 12) return new Date(y, b - 1, a)
-        if (b > 12) return new Date(y, a - 1, b)
-      }
-    }
-  }
-
-  const formats = [
-    /^(\d{4})-(\d{2})-(\d{2})$/,
-    /^(\d{4})\/(\d{2})\/(\d{2})$/,
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,
-  ]
-  for (const re of formats) {
-    const m = trimmed.match(re)
-    if (!m) continue
-    if (re === formats[0] || re === formats[1]) {
-      const y = Number(m[1])
-      const mo = Number(m[2])
-      const d = Number(m[3])
-      return new Date(y, mo - 1, d)
-    }
-    const a = Number(m[1])
-    const b = Number(m[2])
-    const y = Number(m[3])
-    if (a > 12) return new Date(y, b - 1, a)
-    return new Date(y, a - 1, b)
-  }
 
   return undefined
 }

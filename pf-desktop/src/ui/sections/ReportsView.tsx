@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useAppStore } from '../../app/appStore'
 import { currency } from '../../domain/finance'
 import { calculateMonthSummary, calculateYearSummary } from '../../domain/reports'
+import { isTauriRuntime } from '../../storage/tauriJsonStore'
 import {
   BarChart,
   Bar,
@@ -42,6 +43,7 @@ export function ReportsView() {
   const [activeExpenseSlice, setActiveExpenseSlice] = useState<number | null>(null)
   const [showIncomePie, setShowIncomePie] = useState(true)
   const [showExpensePie, setShowExpensePie] = useState(true)
+  const [savingPdf, setSavingPdf] = useState(false)
 
   const selectedYear = useMemo(() => {
     const y = Number(yearStr)
@@ -121,6 +123,199 @@ export function ReportsView() {
 
   const incomePieTotal = useMemo(() => incomePieData.reduce((acc, x) => acc + x.value, 0), [incomePieData])
   const expensePieTotal = useMemo(() => pieData.reduce((acc, x) => acc + x.value, 0), [pieData])
+
+  function periodLabel(): string {
+    if (selectedMonthIndex !== null) {
+      const label = yearSummary?.months[selectedMonthIndex]?.monthName ?? ''
+      return label ? label : 'Selected month'
+    }
+    if (!yearSummary) return 'Total'
+    const start = new Date(yearSummary.startYear, yearSummary.startMonth, 1)
+    const end = new Date(yearSummary.startYear, yearSummary.startMonth + 12, 1)
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    return `${fmt(start)} → ${fmt(end)}`
+  }
+
+  function pieToSvg(params: {
+    title: string
+    totalLabel: string
+    data: Array<{ name: string; value: number }>
+    colors: string[]
+    size: number
+  }): string {
+    const size = params.size
+    const r = size / 2 - 6
+    const cx = size / 2
+    const cy = size / 2
+    const total = params.data.reduce((acc, x) => acc + x.value, 0)
+    if (total <= 0) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"></svg>`
+    }
+    let a0 = -Math.PI / 2
+    const paths: string[] = []
+    for (let i = 0; i < params.data.length; i++) {
+      const v = params.data[i]!.value
+      const da = (v / total) * Math.PI * 2
+      const a1 = a0 + da
+      const x1 = cx + r * Math.cos(a0)
+      const y1 = cy + r * Math.sin(a0)
+      const x2 = cx + r * Math.cos(a1)
+      const y2 = cy + r * Math.sin(a1)
+      const large = da > Math.PI ? 1 : 0
+      const fill = params.colors[i % params.colors.length]!
+      paths.push(`<path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z" fill="${fill}"/>`)
+      a0 = a1
+    }
+    const title = escapeXml(params.title)
+    const totalLabel = escapeXml(params.totalLabel)
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`,
+      `<rect x="0" y="0" width="${size}" height="${size}" fill="white"/>`,
+      ...paths,
+      `<circle cx="${cx}" cy="${cy}" r="${Math.max(0, r * 0.58)}" fill="white"/>`,
+      `<text x="${cx}" y="${cy - 6}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#111">${title}</text>`,
+      `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#111">${totalLabel}</text>`,
+      `</svg>`,
+    ].join('')
+  }
+
+  function escapeXml(input: string): string {
+    return String(input || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+
+  async function svgToPngDataUrl(svg: string, width: number, height: number): Promise<string> {
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    try {
+      const img = new Image()
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('Failed to load SVG image'))
+      })
+      img.src = url
+      await loaded
+      const scale = 2
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(width * scale)
+      canvas.height = Math.round(height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas not available')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      return canvas.toDataURL('image/png')
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  async function savePiePdf(kind: 'income' | 'expense') {
+    if (savingPdf) return
+    try {
+      setSavingPdf(true)
+      const displayCurrency = state.settings.displayCurrencyCode
+      const fmt = (n: number) => currency(n, displayCurrency)
+      const data = kind === 'income' ? incomePieData : pieData
+      const total = kind === 'income' ? incomePieTotal : expensePieTotal
+      if (!yearSummary || data.length === 0 || total <= 0) {
+        window.alert('Nothing to print for the selected period.')
+        return
+      }
+      const title = kind === 'income' ? 'Income Report' : 'Expenses Report'
+      const period = periodLabel()
+
+      const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+      const doc = new JsPDF({ unit: 'pt', format: 'a4' })
+
+      doc.setFontSize(18)
+      doc.text(title, 42, 48)
+
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      doc.text(period, 42, 64)
+      doc.text(`Total: ${fmt(total)}`, 42, 78)
+
+      const svg = pieToSvg({
+        title: kind === 'income' ? 'Income' : 'Expenses',
+        totalLabel: fmt(total),
+        data: data.slice(0, 12),
+        colors: COLORS,
+        size: 260,
+      })
+      const png = await svgToPngDataUrl(svg, 260, 260)
+      doc.addImage(png, 'PNG', 42, 102, 240, 240)
+
+      const rows = data.map((x, idx) => {
+        const pct = total > 0 ? (x.value / total) * 100 : 0
+        const color = COLORS[idx % COLORS.length]!
+        return [color, x.name, fmt(x.value), `${pct.toFixed(1)}%`]
+      })
+
+      autoTable(doc, {
+        startY: 102,
+        margin: { left: 300, right: 42 },
+        head: [['', 'Name', 'Amount', '%']],
+        body: rows,
+        theme: 'striped',
+        headStyles: { fillColor: [66, 66, 66] },
+        columnStyles: { 0: { cellWidth: 16 }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        styles: { fontSize: 9, cellPadding: 4 },
+        didParseCell: (hook: any) => {
+          if (hook.section !== 'body') return
+          if (hook.column.index !== 0) return
+          const hex = String(hook.cell.raw ?? '')
+          const m = hex.match(/^#?([0-9a-f]{6})$/i)
+          if (!m) return
+          const n = parseInt(m[1]!, 16)
+          const r = (n >> 16) & 255
+          const g = (n >> 8) & 255
+          const b = n & 255
+          hook.cell.text = ['']
+          hook.cell.styles.fillColor = [r, g, b]
+        },
+        didDrawPage: () => {
+          const pageNumber = doc.getNumberOfPages()
+          doc.setFontSize(9)
+          doc.setTextColor(120, 120, 120)
+          doc.text(`Kivana • ${new Date().toLocaleString()} • Page ${pageNumber}`, 42, doc.internal.pageSize.getHeight() - 28)
+          doc.setTextColor(0, 0, 0)
+        },
+      })
+
+      if (isTauriRuntime()) {
+        const safe = `${title}-${period}`
+          .replace(/[^\w\d]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 60)
+          .toLowerCase()
+        const defaultFileName = `${safe || 'report'}-${new Date().toISOString().slice(0, 10)}.pdf`
+        const { save } = await import('@tauri-apps/plugin-dialog')
+        const { invoke } = await import('@tauri-apps/api/core')
+        const filePath = await save({
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+          defaultPath: defaultFileName,
+        })
+        if (!filePath) return
+        const pdfArrayBuffer = doc.output('arraybuffer')
+        const pdfBytes = Array.from(new Uint8Array(pdfArrayBuffer))
+        await invoke('export_pdf', { destinationPath: filePath, pdfContent: pdfBytes })
+        window.alert('PDF saved.')
+      } else {
+        doc.save(`${title}-${new Date().toISOString().slice(0, 10)}.pdf`)
+      }
+    } catch (e) {
+      console.error(e)
+      window.alert('Failed to generate PDF.')
+    } finally {
+      setSavingPdf(false)
+    }
+  }
 
   const renderActiveSlice: any = (props: any) => {
     const RADIAN = Math.PI / 180
@@ -420,6 +615,12 @@ export function ReportsView() {
     <>
       <div className="row" style={{ marginTop: 8 }}>
         <div className="rowActions">
+          <button type="button" onClick={() => void savePiePdf('expense')} disabled={savingPdf || expensePieTotal <= 0}>
+            Print Expenses PDF
+          </button>
+          <button type="button" onClick={() => void savePiePdf('income')} disabled={savingPdf || incomePieTotal <= 0}>
+            Print Income PDF
+          </button>
           <label className="field" style={{ margin: 0, marginRight: 16 }}>
             <div className="fieldLabel">Start Month</div>
             <select value={startMonthStr} onChange={(e) => setStartMonthStr(e.target.value)} style={{ width: 120, height: 32 }}>

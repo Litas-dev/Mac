@@ -4,12 +4,19 @@ import type { CsvRow } from './csvImport'
 
 type PdfTextItem = { str: string; hasEOL?: boolean; transform: number[] }
 
-export async function convertPdfToCsvString(file: File): Promise<string> {
+export type PdfImportFormat = 'auto' | 'monzo' | 'revolut-lt' | 'metro' | 'inout-table' | 'generic'
+
+export type PdfImportOptions = {
+  format?: PdfImportFormat
+}
+
+export async function convertPdfToCsvString(file: File, options?: PdfImportOptions): Promise<string> {
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
   pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
 
   const data = new Uint8Array(await file.arrayBuffer())
   const doc = await pdfjs.getDocument({ data }).promise
+  const format: PdfImportFormat = options?.format ?? 'auto'
   
   type StatementPeriod = { start: Date; end: Date }
   let period: StatementPeriod | null = null
@@ -439,6 +446,15 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
     let currentMain: string | null = null
     let currentNotes: string[] = []
 
+    const appendNotesToLastRow = (parts: string[]) => {
+      const text = parts.map((p) => p.trim()).filter((p) => p.length > 0).join(' ').trim()
+      if (!text) return
+      const last = rows[rows.length - 1]
+      if (!last) return
+      const existing = String(last[2] ?? '').trim()
+      last[2] = existing ? `${existing} ${text}`.trim() : text
+    }
+
     const flush = (outRaw: string, inRaw: string) => {
       const nOut = parseDecimal(outRaw)
       const nIn = parseDecimal(inRaw)
@@ -495,15 +511,24 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       if (normDesc.includes('balance brought forward')) continue
       if (isHeaderRow(dateRaw, descLine, typeLine, by.out.map((x) => x.str).join(' '), by.in.map((x) => x.str).join(' '))) continue
 
+      const outRaw = cleanCell(by.out.map((x) => x.str).join(''))
+      const inRaw = cleanCell(by.in.map((x) => x.str).join(''))
+      const hasMoney = (parseDecimal(outRaw) != null && parseDecimal(outRaw) !== 0) || (parseDecimal(inRaw) != null && parseDecimal(inRaw) !== 0)
+      const hasDateOnThisLine = Boolean(dateIso)
+
+      // Revolut/UK-style statements often put "tiny" extra lines under the main row (From:, Fee:, etc)
+      // with no date and no money values. Those should attach to the previous transaction, not start a new one.
+      if (!hasMoney && !hasDateOnThisLine && !currentMain && currentNotes.length === 0 && rows.length > 0 && descLine) {
+        appendNotesToLastRow([descLine, typeLine])
+        continue
+      }
+
       if (descLine) {
-        if (!currentMain && isMainDescriptionLine(descLine)) currentMain = descLine
+        if (!currentMain) currentMain = descLine
         else currentNotes.push(descLine)
       }
       if (typeLine) currentNotes.push(typeLine)
 
-      const outRaw = cleanCell(by.out.map((x) => x.str).join(''))
-      const inRaw = cleanCell(by.in.map((x) => x.str).join(''))
-      const hasMoney = (parseDecimal(outRaw) != null && parseDecimal(outRaw) !== 0) || (parseDecimal(inRaw) != null && parseDecimal(inRaw) !== 0)
       if (hasMoney) flush(outRaw, inRaw)
     }
 
@@ -563,6 +588,8 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
 
     const out: string[][] = []
     let lastDateIso: string | null = null
+    type PendingTx = { dateIso: string; descLines: string[] }
+    let pending: PendingTx | null = null
 
     const appendNoteToLast = (note: string) => {
       const n = note.trim()
@@ -576,6 +603,30 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
       const joined = `${existing} ${n}`.trim()
       last[2] = joined
+    }
+
+    const isSmallDetailLine = (input: string) => {
+      const norm = normalizeHeaderToken(input)
+      if (!norm) return true
+      if (norm.startsWith('reference:')) return true
+      if (norm.includes('this relates to a previous transaction')) return true
+      if (norm.startsWith('ref')) return true
+      if (norm.startsWith('mf')) return true
+      if (norm.startsWith('kid')) return true
+      if (norm.startsWith('card')) return true
+      if (norm.startsWith('kam:')) return true
+      if (norm.startsWith('nuroda')) return true
+      return false
+    }
+
+    const finalizePendingWithAmount = (dateIso: string, amtRaw: string, extraDesc: string) => {
+      const nAmt = parseDecimal(amtRaw)
+      if (nAmt == null || nAmt === 0) return
+      const desc = cleanCell(extraDesc)
+      const descLines = pending ? [...pending.descLines] : []
+      if (desc) descLines.push(desc)
+      const combinedDesc = cleanCell(descLines.filter((x) => x.length > 0).join(' '))
+      pushTx(dateIso, combinedDesc, amtRaw, [])
     }
 
     const pushTx = (dateIso: string, descLine: string, amtRaw: string, extraNotes: string[]) => {
@@ -619,7 +670,7 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       const nAmt = parseDecimal(amtRaw)
       const hasAmount = nAmt != null && nAmt !== 0
 
-      const effectiveDate = dateIso ?? lastDateIso
+      const effectiveDate: string | null = dateIso ?? lastDateIso ?? null
 
       const dateExtras = cleanCell(
         by.date
@@ -659,36 +710,32 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
 
       if (hasAmount && effectiveDate) {
-        pushTx(effectiveDate, descLine, amtRaw, [])
+        if (pending && pending.dateIso === effectiveDate) {
+          finalizePendingWithAmount(effectiveDate, amtRaw, descLine)
+          pending = null
+        } else {
+          pushTx(effectiveDate, descLine, amtRaw, [])
+        }
         continue
       }
 
-      if (descLine) {
-        const norm = normalizeHeaderToken(descLine)
-        const looksLikeSmallDetail =
-          norm.startsWith('reference:') ||
-          norm.includes('this relates to a previous transaction') ||
-          norm.startsWith('mf') ||
-          norm.startsWith('kid') ||
-          norm.startsWith('ref') ||
-          norm.startsWith('card') ||
-          norm.startsWith('kam:') ||
-          norm.startsWith('nuroda')
-        
-        if (looksLikeSmallDetail) {
-          appendNoteToLast(descLine)
-        } else {
-          // If it doesn't look like a tiny detail, append it to the main Description of the last row
-          const last = out[out.length - 1]
-          if (last) {
-            const existingMain = last[1] ?? ''
-            if (existingMain === 'Transaction') {
-              last[1] = descLine
-            } else {
-              last[1] = `${existingMain} ${descLine}`.trim()
-            }
-          }
-        }
+      if (!descLine) continue
+
+      if (isSmallDetailLine(descLine)) {
+        if (pending) pending.descLines.push(descLine)
+        else appendNoteToLast(descLine)
+        continue
+      }
+
+      // Start/continue a pending transaction description until we see its amount.
+      if (!effectiveDate) continue
+      if (dateIso) {
+        // New row started; don't blend with previous pending.
+        pending = { dateIso: effectiveDate, descLines: [descLine] }
+      } else if (!pending) {
+        pending = { dateIso: effectiveDate, descLines: [descLine] }
+      } else {
+        pending.descLines.push(descLine)
       }
     }
 
@@ -962,44 +1009,38 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       h: Math.abs(it.transform[3] ?? 0),
     }))
 
-    const inOutTable = parseInOutTablePage(positioned)
-    if (inOutTable && inOutTable.length) {
+    const addWithHeader = (rows: string[][]) => {
       if (!barclaysHeaderAdded) {
         csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
         barclaysHeaderAdded = true
       }
-      csvRows.push(...inOutTable)
-      continue
+      csvRows.push(...rows)
     }
 
-    const metro = parseMetroBankPage(positioned)
-    if (metro && metro.length) {
-      if (!barclaysHeaderAdded) {
-        csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
-        barclaysHeaderAdded = true
-      }
-      csvRows.push(...metro)
-      continue
+    const tryParser = (rows: string[][] | null) => {
+      if (!rows || rows.length === 0) return false
+      addWithHeader(rows)
+      return true
     }
 
-    const revolut = parseRevolutLtPage(positioned)
-    if (revolut && revolut.length) {
-      if (!barclaysHeaderAdded) {
-        csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
-        barclaysHeaderAdded = true
-      }
-      csvRows.push(...revolut)
-      continue
+    if (format === 'inout-table' || format === 'auto') {
+      const inOutTable = parseInOutTablePage(positioned)
+      if (tryParser(inOutTable)) continue
     }
 
-    const monzo = parseMonzoBankPage(positioned)
-    if (monzo && monzo.length) {
-      if (!barclaysHeaderAdded) {
-        csvRows.push(['Date', 'Description', 'Notes', 'Money out', 'Money in', 'Balance'])
-        barclaysHeaderAdded = true
-      }
-      csvRows.push(...monzo)
-      continue
+    if (format === 'metro' || format === 'auto') {
+      const metro = parseMetroBankPage(positioned)
+      if (tryParser(metro)) continue
+    }
+
+    if (format === 'revolut-lt' || format === 'auto') {
+      const revolut = parseRevolutLtPage(positioned)
+      if (tryParser(revolut)) continue
+    }
+
+    if (format === 'monzo' || format === 'auto') {
+      const monzo = parseMonzoBankPage(positioned)
+      if (tryParser(monzo)) continue
     }
 
     if (!period) {
@@ -1279,9 +1320,11 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
       }
     }
 
-    const generic = buildTransactionsCsvFromMappedRows(mappedRows)
-    if (generic.length > 0) {
-      csvRows.push(...generic)
+    if (format === 'generic' || format === 'auto') {
+      const generic = buildTransactionsCsvFromMappedRows(mappedRows)
+      if (generic.length > 0) {
+        addWithHeader(generic.slice(1))
+      }
     }
   }
 
@@ -1311,6 +1354,11 @@ export async function convertPdfToCsvString(file: File): Promise<string> {
 
 export async function parsePdfRows(file: File): Promise<CsvRow[]> {
   const csvString = await convertPdfToCsvString(file)
+  return parseCsvRows(csvString)
+}
+
+export async function parsePdfRowsWithOptions(file: File, options?: PdfImportOptions): Promise<CsvRow[]> {
+  const csvString = await convertPdfToCsvString(file, options)
   return parseCsvRows(csvString)
 }
 

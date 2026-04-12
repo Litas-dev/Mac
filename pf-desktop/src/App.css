@@ -110,6 +110,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .topbar {
@@ -280,6 +281,8 @@
 }
 
 .content {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -974,6 +977,13 @@
   border-radius: 12px;
   padding: 12px;
   background: var(--surface-2);
+}
+
+@media (min-width: 861px) {
+  .split.stickyDetail .detail {
+    position: sticky;
+    top: 12px;
+  }
 }
 
 .groupBox {

@@ -268,6 +268,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       const sel = state.ui.selectedTransactionId === action.id ? null : state.ui.selectedTransactionId
       return { ...state, transactions: next, ui: { ...state.ui, selectedTransactionId: sel } }
     }
+    case 'transactions/clearAll':
+      return { ...state, transactions: [], ui: { ...state.ui, selectedTransactionId: null } }
     case 'invoices/add':
       return { ...state, invoices: [...state.invoices, action.invoice] }
     case 'invoices/update':
