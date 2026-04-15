@@ -36,6 +36,7 @@ export function TransactionsView() {
   const [allowLargeUnfilteredList, setAllowLargeUnfilteredList] = useState(false)
   const [taxRatePct, setTaxRatePct] = useState<number>(0)
   const [taxBase, setTaxBase] = useState<'income' | 'expense' | 'net'>('income')
+  const [cisAlreadyDeducted, setCisAlreadyDeducted] = useState(false)
   const [taxOverrideEnabled, setTaxOverrideEnabled] = useState(false)
   const [taxOverrideAmount, setTaxOverrideAmount] = useState<number>(0)
   const [selectionReportTitle, setSelectionReportTitle] = useState('Selected Transactions')
@@ -50,6 +51,11 @@ export function TransactionsView() {
   const [importingPdf, setImportingPdf] = useState(false)
   const [convertingPdf, setConvertingPdf] = useState(false)
   const [pdfFormat, setPdfFormat] = useState<PdfImportFormat>('auto')
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const [virtualScrollTop, setVirtualScrollTop] = useState(0)
+  const [virtualViewportHeight, setVirtualViewportHeight] = useState(800)
+  const [virtualListStart, setVirtualListStart] = useState(0)
+  const virtualRowHeight = 66
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const pdfInputRef = useRef<HTMLInputElement | null>(null)
   const convertPdfInputRef = useRef<HTMLInputElement | null>(null)
@@ -95,6 +101,39 @@ export function TransactionsView() {
     const day = Math.min(base.getDate(), lastDay)
     return toDateInputValue(new Date(nextMonthAnchor.getFullYear(), nextMonthAnchor.getMonth(), day))
   }
+
+  useEffect(() => {
+    const scrollEl = document.querySelector('.content') as HTMLElement | null
+    if (!scrollEl) return
+
+    let raf = 0
+    const update = () => {
+      setVirtualScrollTop(scrollEl.scrollTop)
+      setVirtualViewportHeight(scrollEl.clientHeight)
+      const list = listRef.current
+      if (!list) return
+      const listRect = list.getBoundingClientRect()
+      const scrollRect = scrollEl.getBoundingClientRect()
+      setVirtualListStart(listRect.top - scrollRect.top + scrollEl.scrollTop)
+    }
+
+    const onScroll = () => {
+      if (raf) return
+      raf = window.requestAnimationFrame(() => {
+        raf = 0
+        update()
+      })
+    }
+
+    update()
+    scrollEl.addEventListener('scroll', onScroll, { passive: true } as any)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf)
+      scrollEl.removeEventListener('scroll', onScroll as any)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [showEditor])
 
   const payeeGroups = useMemo(() => {
     const counts = new Map<string, number>()
@@ -289,6 +328,20 @@ export function TransactionsView() {
     }
   }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, isListGated, kindFilter, payeeFilter, search, sort, sourceFilter, state.transactions])
 
+  const virtualWindow = useMemo(() => {
+    const total = filtered.length
+    const rowH = virtualRowHeight
+    const viewH = Number.isFinite(virtualViewportHeight) && virtualViewportHeight > 0 ? virtualViewportHeight : 800
+    const startPx = Math.max(0, virtualScrollTop - virtualListStart)
+    const overscan = 12
+    const start = Math.max(0, Math.floor(startPx / rowH) - overscan)
+    const count = Math.ceil(viewH / rowH) + overscan * 2 + 1
+    const end = Math.min(total, start + count)
+    const topPad = start * rowH
+    const bottomPad = Math.max(0, (total - end) * rowH)
+    return { start, end, topPad, bottomPad }
+  }, [filtered.length, virtualListStart, virtualRowHeight, virtualScrollTop, virtualViewportHeight])
+
   const uncategorizedExpenseGroups = useMemo(() => {
     const byKey = new Map<string, { payeeKey: string; ids: UUID[]; count: number }>()
     for (const t of filtered) {
@@ -341,6 +394,7 @@ export function TransactionsView() {
     tx: Transaction[]
     taxBase: 'income' | 'expense' | 'net'
     taxRatePct: number
+    cisAlreadyDeducted: boolean
     taxOverrideEnabled: boolean
     taxOverrideAmount: number
   }) {
@@ -353,15 +407,16 @@ export function TransactionsView() {
     const net = income - expense
     const base = params.taxBase === 'income' ? income : params.taxBase === 'expense' ? expense : net
     const rate = Number.isFinite(params.taxRatePct) ? params.taxRatePct : 0
-    const computedTax = Math.max(0, base) * (rate / 100)
+    const cisMode = params.cisAlreadyDeducted && params.taxBase === 'income' && rate > 0 && rate < 100
+    const computedTax = cisMode ? Math.max(0, base) * (rate / (100 - rate)) : Math.max(0, base) * (rate / 100)
     const tax = params.taxOverrideEnabled ? Math.max(0, params.taxOverrideAmount || 0) : computedTax
     const totalWithTax = base + tax
     return { income, expense, net, base, computedTax, tax, totalWithTax }
   }
 
   const selectionTotals = useMemo(() => {
-    return calcSelectionTotalsFor({ tx: selectedTx, taxBase, taxRatePct, taxOverrideEnabled, taxOverrideAmount })
-  }, [selectedTx, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
+    return calcSelectionTotalsFor({ tx: selectedTx, taxBase, taxRatePct, cisAlreadyDeducted, taxOverrideEnabled, taxOverrideAmount })
+  }, [selectedTx, taxBase, cisAlreadyDeducted, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
 
   const hasMixedTypes = useMemo(() => {
     if (selectedTx.length === 0) return false
@@ -592,6 +647,7 @@ export function TransactionsView() {
     tx: Transaction[]
     taxBase: 'income' | 'expense' | 'net'
     taxRatePct: number
+    cisAlreadyDeducted: boolean
     taxOverrideEnabled: boolean
     taxOverrideAmount: number
     title?: string
@@ -600,7 +656,10 @@ export function TransactionsView() {
     if (!enableTaxPdf) return
     const displayCurrency = state.settings.displayCurrencyCode
     const fmt = (n: number) => currency(n, displayCurrency)
-    const baseLabel = params.taxBase === 'income' ? 'Income' : params.taxBase === 'expense' ? 'Expenses' : 'Net'
+    const cisMode = params.cisAlreadyDeducted && params.taxBase === 'income'
+    const baseLabel = cisMode ? 'Income (Net)' : params.taxBase === 'income' ? 'Income' : params.taxBase === 'expense' ? 'Expenses' : 'Net'
+    const taxLabel = cisMode ? 'CIS' : 'Tax'
+    const totalLabel = cisMode ? 'Gross' : 'Total + Tax'
     const totals = calcSelectionTotalsFor(params)
     const title = (params.title ?? selectionReportTitle).trim() || 'Selected Transactions'
 
@@ -639,8 +698,8 @@ export function TransactionsView() {
 
     doc.setFont('helvetica', 'normal')
     doc.text(`Tax base (${baseLabel}):`, col2X, 98)
-    doc.text('Tax:', col2X, 116)
-    doc.text('Total + Tax:', col2X, 134)
+    doc.text(`${taxLabel}:`, col2X, 116)
+    doc.text(`${totalLabel}:`, col2X, 134)
 
     doc.setFont('helvetica', 'bold')
     doc.text(fmt(totals.base), val2X, 98, { align: 'right' })
@@ -692,6 +751,7 @@ export function TransactionsView() {
       tx: selectedTx,
       taxBase,
       taxRatePct,
+      cisAlreadyDeducted,
       taxOverrideEnabled,
       taxOverrideAmount,
       title: selectionReportTitle,
@@ -789,6 +849,7 @@ export function TransactionsView() {
           tx: matches,
           taxBase: req.taxBase ?? taxBase,
           taxRatePct: req.taxRatePct ?? taxRatePct,
+          cisAlreadyDeducted,
           taxOverrideEnabled: req.taxRatePct != null ? false : taxOverrideEnabled,
           taxOverrideAmount,
         })
@@ -798,7 +859,7 @@ export function TransactionsView() {
     return () => {
       window.removeEventListener(AI_TRANSACTIONS_AUTOMATION_EVENT, handler)
     }
-  }, [enableGuiAutomation, payeeGroups, selectedTx, state.transactions, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
+  }, [cisAlreadyDeducted, enableGuiAutomation, payeeGroups, selectedTx, state.transactions, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
 
   function importCsvClick() {
     fileInputRef.current?.click()
@@ -1515,7 +1576,7 @@ export function TransactionsView() {
       </div>
 
       <div className={showEditor ? 'split stickyDetail' : 'split noDetail'}>
-        <div className="list">
+        <div className="list" ref={listRef}>
           {isListGated ? (
             <div className="empty">
               <div>Lots of transactions ({state.transactions.length}). Apply filters to load them.</div>
@@ -1533,7 +1594,8 @@ export function TransactionsView() {
             </div>
           ) : (
             <>
-              {filtered.map((t) => (
+              {virtualWindow.topPad > 0 ? <div style={{ height: virtualWindow.topPad }} /> : null}
+              {filtered.slice(virtualWindow.start, virtualWindow.end).map((t) => (
                 <div
                   key={t.id}
                   role="button"
@@ -1579,6 +1641,7 @@ export function TransactionsView() {
                   </div>
                 </div>
               ))}
+              {virtualWindow.bottomPad > 0 ? <div style={{ height: virtualWindow.bottomPad }} /> : null}
               {filtered.length === 0 ? <div className="empty">No transactions match the current filters.</div> : null}
             </>
           )}
@@ -1611,7 +1674,11 @@ export function TransactionsView() {
                           { value: 'expense', label: 'Expenses' },
                           { value: 'net', label: 'Net' },
                         ]}
-                        onChange={(v) => setTaxBase(v as any)}
+                        onChange={(v) => {
+                          const next = v as any
+                          setTaxBase(next)
+                          if (next !== 'income') setCisAlreadyDeducted(false)
+                        }}
                         width={220}
                       />
                     </label>
@@ -1620,6 +1687,20 @@ export function TransactionsView() {
                       <input type="number" value={taxRatePct} onChange={(e) => setTaxRatePct(Number(e.target.value))} />
                     </label>
                   </div>
+                  <label className="check" style={{ marginTop: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={cisAlreadyDeducted}
+                      disabled={taxBase !== 'income'}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setCisAlreadyDeducted(checked)
+                        if (checked && (!Number.isFinite(taxRatePct) || taxRatePct === 0)) setTaxRatePct(20)
+                        if (checked) setTaxOverrideEnabled(false)
+                      }}
+                    />
+                    CIS already deducted (Income is net)
+                  </label>
                   <label className="check" style={{ marginTop: 10 }}>
                     <input type="checkbox" checked={taxOverrideEnabled} onChange={(e) => setTaxOverrideEnabled(e.target.checked)} />
                     Override tax amount
@@ -1698,11 +1779,11 @@ export function TransactionsView() {
                       <div className="progressValue">{currency(selectionTotals.net, state.settings.displayCurrencyCode)}</div>
                     </div>
                     <div className="progressRow" style={{ marginTop: 8 }}>
-                      <div className="note">Tax</div>
+                      <div className="note">{cisAlreadyDeducted && taxBase === 'income' ? 'CIS' : 'Tax'}</div>
                       <div className="progressValue">{currency(selectionTotals.tax, state.settings.displayCurrencyCode)}</div>
                     </div>
                     <div className="progressRow" style={{ marginTop: 8 }}>
-                      <div className="note">Total + Tax</div>
+                      <div className="note">{cisAlreadyDeducted && taxBase === 'income' ? 'Gross' : 'Total + Tax'}</div>
                       <div className="progressValue">{currency(selectionTotals.totalWithTax, state.settings.displayCurrencyCode)}</div>
                     </div>
                   </div>

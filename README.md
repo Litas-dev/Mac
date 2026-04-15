@@ -20,7 +20,7 @@ Kivana uses the Tauri updater.
 This repository contains the source code. Releases are produced by a GitHub Actions workflow in this repo and uploaded to the releases repo above.
 
 ## Version
-- Current: 0.2.4
+- Current: 0.2.5
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 
 ## Features
