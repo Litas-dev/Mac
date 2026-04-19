@@ -1,6 +1,6 @@
 # Kivana (Desktop)
 
-Kivana is a cross-platform desktop app (Tauri + React) for tracking bills, incomes, accounts, goals, debts, and basic reporting.
+Kivana is a cross-platform desktop app (Tauri + React) for tracking bills, incomes, accounts, goals, debts, reports, and document storage.
 
 ## Download / Install
 Installers and update artifacts are published in the releases repo:
@@ -20,7 +20,7 @@ Kivana uses the Tauri updater.
 This repository contains the source code. Releases are produced by a GitHub Actions workflow in this repo and uploaded to the releases repo above.
 
 ## Version
-- Current: 0.2.5
+- Current: 0.3.0
 - Versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
 
 ## Features
@@ -29,7 +29,10 @@ This repository contains the source code. Releases are produced by a GitHub Acti
 - Accounts + transactions: basic ledger and net worth.
 - Goals + debts: simple tracking views.
 - Notifications + calendar export (ICS).
-- AI command bar: quick parsing/execution of common actions + recent command suggestions.
+- Files: store images/PDFs in app data (included in backups), per person, with folders, search, drag reorder, rename, right-click actions, and PDF previews.
+- Reports: printable PDFs that can be saved into Files automatically.
+- AI command bar (Bills only): quick parsing/execution of common actions.
+- People profiles (Pro): separate transactions/files per person, plus reminders (example: amount owed).
 
 ## Build & Run
 The desktop app lives in `pf-desktop/`.
