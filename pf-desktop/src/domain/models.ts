@@ -45,6 +45,9 @@ export interface Invoice {
   id: UUID
   title: string
   createdAt: Date
+  personId?: UUID | null
+  order?: number
+  folder?: string | null
   invoiceDate?: Date | null
   vendor?: string | null
   client?: string | null
@@ -97,6 +100,7 @@ export interface Transaction {
   kind: TransactionKind
   date: Date
   amount: DecimalAmount
+  personId?: UUID | null
   accountId?: UUID | null
   toAccountId?: UUID | null
   category?: BillCategory | null

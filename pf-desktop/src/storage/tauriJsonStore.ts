@@ -15,6 +15,7 @@ import {
   type Payment,
 } from '../domain/models'
 import type { AppSettings } from '../domain/settings'
+import { normalizePeopleSettings } from '../domain/people'
 
 export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && typeof (window as any).__TAURI_INTERNALS__ !== 'undefined'
@@ -38,12 +39,18 @@ export async function appDataDir(): Promise<string> {
 }
 
 export async function loadAllFromTauriFiles(fallbackSettings: AppSettings): Promise<LoadedDatasets> {
+  const settings = normalizePeopleSettings(await loadSettingsFromTauriFiles(fallbackSettings))
+  const txLoaded = await loadTransactionsForSettingsFromTauriFiles(settings)
+  const settingsWithCounts: AppSettings = {
+    ...settings,
+    peopleTransactionCounts: { ...settings.peopleTransactionCounts, ...txLoaded.counts },
+  }
   return {
-    settings: await loadSettingsFromTauriFiles(fallbackSettings),
+    settings: settingsWithCounts,
     bills: await loadArrayFromTauriFiles('bills', decodeBill),
     incomes: await loadArrayFromTauriFiles('incomes', decodeIncome),
     accounts: await loadArrayFromTauriFiles('accounts', decodeAccount),
-    transactions: await loadArrayFromTauriFiles('transactions', decodeTransaction),
+    transactions: txLoaded.transactions,
     invoices: await loadArrayFromTauriFiles('invoices', decodeInvoice),
     goals: await loadArrayFromTauriFiles('goals', decodeGoal),
     debts: await loadArrayFromTauriFiles('debts', decodeDebt),
@@ -51,11 +58,16 @@ export async function loadAllFromTauriFiles(fallbackSettings: AppSettings): Prom
 }
 
 export async function saveAllToTauriFiles(data: LoadedDatasets): Promise<void> {
-  await saveSettingsToTauriFiles(data.settings)
+  const settings = normalizePeopleSettings(data.settings)
+  const settingsWithCounts: AppSettings = {
+    ...settings,
+    peopleTransactionCounts: { ...settings.peopleTransactionCounts, [settings.activePersonId]: data.transactions.length },
+  }
+  await saveSettingsToTauriFiles(settingsWithCounts)
   await saveArrayToTauriFiles('bills', data.bills, encodeBill)
   await saveArrayToTauriFiles('incomes', data.incomes, encodeIncome)
   await saveArrayToTauriFiles('accounts', data.accounts, encodeAccount)
-  await saveArrayToTauriFiles('transactions', data.transactions, encodeTransaction)
+  await saveTransactionsForSettingsToTauriFiles(settingsWithCounts, data.transactions)
   await saveArrayToTauriFiles('invoices', data.invoices, encodeInvoice)
   await saveArrayToTauriFiles('goals', data.goals, encodeGoal)
   await saveArrayToTauriFiles('debts', data.debts, encodeDebt)
@@ -131,6 +143,7 @@ type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'>
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
 type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
+type EncodedTransactionsEnvelope = { version: 2; byPerson: Record<string, EncodedTransaction[]> }
 
 function encodePayment(p: Payment): EncodedPayment {
   return { ...p, date: iso8601NoMillis(p.date) }
@@ -223,6 +236,115 @@ function encodeTransaction(t: Transaction): EncodedTransaction {
 function decodeTransaction(x: unknown): Transaction {
   const o = x as EncodedTransaction
   return { ...o, date: parseISO8601(o.date), tags: o.tags ?? [] }
+}
+
+async function parseEncodedTransactionsRawFromTauriFiles(): Promise<unknown> {
+  const raw = await readText(DATA_FILES.transactions)
+  if (!raw) return null
+  try {
+    return safeParseJSON(raw)
+  } catch {
+    await preserveCorrupt(DATA_FILES.transactions)
+    return null
+  }
+}
+
+function decodeAllByPerson(raw: unknown): { byPerson: Record<string, Transaction[]>; counts: Record<string, number> } {
+  if (Array.isArray(raw)) {
+    const list = raw.map(decodeTransaction)
+    return { byPerson: { legacy: list }, counts: { legacy: list.length } }
+  }
+  const env = raw as EncodedTransactionsEnvelope
+  const obj = env?.byPerson && typeof env.byPerson === 'object' ? env.byPerson : {}
+  const byPerson: Record<string, Transaction[]> = {}
+  const counts: Record<string, number> = {}
+  for (const [pid, arr] of Object.entries(obj)) {
+    if (!Array.isArray(arr)) continue
+    const list = arr.map(decodeTransaction)
+    byPerson[pid] = list
+    counts[pid] = list.length
+  }
+  return { byPerson, counts }
+}
+
+export async function loadTransactionsForSettingsFromTauriFiles(settings: AppSettings): Promise<{ transactions: Transaction[]; counts: Record<string, number> }> {
+  const normalized = normalizePeopleSettings(settings)
+  return loadTransactionsForPersonFromTauriFiles(normalized, normalized.activePersonId)
+}
+
+export async function loadTransactionsForPersonFromTauriFiles(
+  settings: AppSettings,
+  personId: string,
+): Promise<{ transactions: Transaction[]; counts: Record<string, number> }> {
+  const normalized = normalizePeopleSettings(settings)
+  const raw = await parseEncodedTransactionsRawFromTauriFiles()
+  const decoded = decodeAllByPerson(raw)
+  if (!normalized.peopleEnabled) {
+    const all = Object.values(decoded.byPerson).flat()
+    return { transactions: all, counts: decoded.counts }
+  }
+  const pid = String(personId ?? '').trim()
+  const active = pid || normalized.activePersonId
+  const activeList = decoded.byPerson[active]
+  if (activeList) return { transactions: activeList.map((t) => ({ ...t, personId: t.personId || active })), counts: decoded.counts }
+  const legacy = decoded.byPerson.legacy ?? []
+  if (legacy.length > 0 && active == normalized.activePersonId) {
+    const migrated = legacy.map((t) => ({ ...t, personId: active }))
+    const counts = { ...decoded.counts, [active]: migrated.length }
+    delete (counts as any).legacy
+    return { transactions: migrated, counts }
+  }
+  return { transactions: [], counts: decoded.counts }
+}
+
+export async function deletePersonTransactionsFromTauriFiles(personId: string): Promise<void> {
+  const pid = String(personId ?? '').trim()
+  if (!pid) return
+  const raw = await parseEncodedTransactionsRawFromTauriFiles()
+  if (!raw || Array.isArray(raw)) return
+  const env = raw as EncodedTransactionsEnvelope
+  const byPerson = env?.byPerson && typeof env.byPerson === 'object' ? { ...(env.byPerson as any) } : null
+  if (!byPerson) return
+  if (!(pid in byPerson)) return
+  delete byPerson[pid]
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  await writeText(DATA_FILES.transactions, safeStringifyJSON(payload))
+}
+
+export async function saveTransactionsForPersonToTauriFiles(settings: AppSettings, personId: string, transactions: Transaction[]): Promise<void> {
+  const normalized = normalizePeopleSettings(settings)
+  const pid = String(personId ?? '').trim()
+  if (!pid) return
+  if (!normalized.peopleEnabled) {
+    await writeText(DATA_FILES.transactions, safeStringifyJSON(transactions.map(encodeTransaction)))
+    return
+  }
+  const raw = await parseEncodedTransactionsRawFromTauriFiles()
+  const env = raw && !Array.isArray(raw) ? (raw as EncodedTransactionsEnvelope) : null
+  const byPerson: Record<string, EncodedTransaction[]> =
+    env?.byPerson && typeof env.byPerson === 'object' ? ({ ...(env.byPerson as any) } as any) : {}
+  byPerson[pid] = transactions.map((t) => encodeTransaction({ ...t, personId: t.personId || pid }))
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  await writeText(DATA_FILES.transactions, safeStringifyJSON(payload))
+}
+
+async function saveTransactionsForSettingsToTauriFiles(settings: AppSettings, activeTransactions: Transaction[]): Promise<void> {
+  const normalized = normalizePeopleSettings(settings)
+  if (!normalized.peopleEnabled) {
+    await writeText(DATA_FILES.transactions, safeStringifyJSON(activeTransactions.map(encodeTransaction)))
+    return
+  }
+  const existing = decodeAllByPerson(await parseEncodedTransactionsRawFromTauriFiles())
+  const byPerson: Record<string, EncodedTransaction[]> = {}
+  for (const [pid, tx] of Object.entries(existing.byPerson)) {
+    if (pid === 'legacy') continue
+    byPerson[pid] = tx.map(encodeTransaction)
+  }
+  byPerson[normalized.activePersonId] = activeTransactions.map((t) =>
+    encodeTransaction({ ...t, personId: t.personId || normalized.activePersonId }),
+  )
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  await writeText(DATA_FILES.transactions, safeStringifyJSON(payload))
 }
 
 function encodeGoal(g: Goal): EncodedGoal {

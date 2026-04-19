@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthProvider'
+import { loadLastLoginEmail, saveLastLoginEmail } from '../storage/userPrefs'
 
 export function LoginModal() {
   const auth = useAuth()
@@ -8,6 +9,12 @@ export function LoginModal() {
   const [status, setStatus] = useState('')
 
   const shouldShow = useMemo(() => auth.openLogin && auth.ready, [auth.openLogin, auth.ready])
+
+  useEffect(() => {
+    if (email) return
+    const remembered = loadLastLoginEmail()
+    if (remembered) setEmail(remembered)
+  }, [email])
 
   const kivanaPlan = useMemo(() => {
     const p = auth.entitlements?.products?.find((x) => x.productCode === 'kivana') ?? auth.entitlements?.products?.[0]
@@ -19,6 +26,7 @@ export function LoginModal() {
     setStatus('')
     try {
       await auth.signIn(email, password)
+      saveLastLoginEmail(email)
       setStatus('')
     } catch (e: any) {
       setStatus(`Sign in failed: ${String(e?.message ?? e)}`)
@@ -29,6 +37,7 @@ export function LoginModal() {
     setStatus('')
     try {
       await auth.signUp(email, password)
+      saveLastLoginEmail(email)
       setStatus('')
     } catch (e: any) {
       setStatus(`Sign up failed: ${String(e?.message ?? e)}`)

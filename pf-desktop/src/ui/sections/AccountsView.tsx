@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
 import type { Account, AccountKind } from '../../domain/models'
 import { accountBalance, currency, signedAmountForAccount } from '../../domain/finance'
+import { visibleTransactions } from '../../domain/people'
 import { toDateInputValue } from '../date'
 import { useContextMenu } from '../ContextMenu'
 import { MenuSelect } from '../MenuSelect'
@@ -12,6 +13,7 @@ export function AccountsView() {
   const selectedId = state.ui.selectedAccountId
   const [setCurrentBalanceText, setSetCurrentBalanceText] = useState('')
   const [search, setSearch] = useState('')
+  const personTransactions = useMemo(() => visibleTransactions(state.transactions, state.settings), [state.settings, state.transactions])
 
   const accountsFiltered = useMemo(() => {
     let items = state.accounts.filter((a) => !a.archived)
@@ -35,7 +37,7 @@ export function AccountsView() {
     return state.accounts.find((a) => a.id === selectedId) ?? null
   }, [selectedId, state.accounts])
 
-  const selectedBalance = selected ? accountBalance(selected, state.transactions) : 0
+  const selectedBalance = selected ? accountBalance(selected, personTransactions) : 0
 
   function createAccount() {
     const a: Account = {
@@ -64,7 +66,7 @@ export function AccountsView() {
 
   function deleteSelected() {
     if (!selected) return
-    const count = state.transactions.filter((t) => t.accountId === selected.id || t.toAccountId === selected.id).length
+    const count = personTransactions.filter((t) => t.accountId === selected.id || t.toAccountId === selected.id).length
     const msg =
       count > 0
         ? `This account is referenced by ${count} transaction(s). Deleting will remove the account and those transactions will become unassigned.`
@@ -78,7 +80,7 @@ export function AccountsView() {
     if (!selected) return
     const target = parseDecimal(setCurrentBalanceText)
     if (target == null) return
-    const current = accountBalance(selected, state.transactions)
+    const current = accountBalance(selected, personTransactions)
     const delta = target - current
     updateSelected({ openingBalance: (selected.openingBalance ?? 0) + delta })
     setSetCurrentBalanceText('')
@@ -115,7 +117,7 @@ export function AccountsView() {
         if (!selectedId) return
         const acc = state.accounts.find((a) => a.id === selectedId)
         if (!acc) return
-        const count = state.transactions.filter((t) => t.accountId === acc.id || t.toAccountId === acc.id).length
+        const count = personTransactions.filter((t) => t.accountId === acc.id || t.toAccountId === acc.id).length
         const msg =
           count > 0
             ? `This account is referenced by ${count} transaction(s). Deleting will remove the account and those transactions will become unassigned.`
@@ -152,7 +154,7 @@ export function AccountsView() {
       <div className="split">
         <div className="list">
           {accountsFiltered.map((a) => {
-            const bal = accountBalance(a, state.transactions)
+            const bal = accountBalance(a, personTransactions)
             return (
               <button
                 key={a.id}
@@ -276,7 +278,7 @@ export function AccountsView() {
 
               <div className="groupBox">
                 <div className="groupTitle">Recent</div>
-                {state.transactions
+                {personTransactions
                   .filter((t) => t.accountId === selected.id || t.toAccountId === selected.id)
                   .sort((a, b) => b.date.getTime() - a.date.getTime())
                   .slice(0, 10)

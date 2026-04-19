@@ -13,6 +13,7 @@ import {
   parseISO8601,
 } from '../domain/models'
 import type { AppSettings } from '../domain/settings'
+import { normalizePeopleSettings } from '../domain/people'
 
 export const DATA_FOLDER_NAME = 'Kivana'
 
@@ -53,12 +54,18 @@ export interface LoadedDatasets {
 }
 
 export function loadAllFromLocalStorage(fallbackSettings: AppSettings): LoadedDatasets {
+  const settings = normalizePeopleSettings(loadSettingsFromLocalStorage(fallbackSettings))
+  const txLoaded = loadTransactionsForSettingsFromLocalStorage(settings)
+  const settingsWithCounts: AppSettings = {
+    ...settings,
+    peopleTransactionCounts: { ...settings.peopleTransactionCounts, ...txLoaded.counts },
+  }
   return {
-    settings: loadSettingsFromLocalStorage(fallbackSettings),
+    settings: settingsWithCounts,
     bills: loadArrayFromLocalStorage('bills', decodeBill),
     incomes: loadArrayFromLocalStorage('incomes', decodeIncome),
     accounts: loadArrayFromLocalStorage('accounts', decodeAccount),
-    transactions: loadArrayFromLocalStorage('transactions', decodeTransaction),
+    transactions: txLoaded.transactions,
     invoices: loadArrayFromLocalStorage('invoices', decodeInvoice),
     goals: loadArrayFromLocalStorage('goals', decodeGoal),
     debts: loadArrayFromLocalStorage('debts', decodeDebt),
@@ -66,11 +73,16 @@ export function loadAllFromLocalStorage(fallbackSettings: AppSettings): LoadedDa
 }
 
 export function saveAllToLocalStorage(data: LoadedDatasets): void {
-  saveSettingsToLocalStorage(data.settings)
+  const settings = normalizePeopleSettings(data.settings)
+  const settingsWithCounts: AppSettings = {
+    ...settings,
+    peopleTransactionCounts: { ...settings.peopleTransactionCounts, [settings.activePersonId]: data.transactions.length },
+  }
+  saveSettingsToLocalStorage(settingsWithCounts)
   saveArrayToLocalStorage('bills', data.bills, encodeBill)
   saveArrayToLocalStorage('incomes', data.incomes, encodeIncome)
   saveArrayToLocalStorage('accounts', data.accounts, encodeAccount)
-  saveArrayToLocalStorage('transactions', data.transactions, encodeTransaction)
+  saveTransactionsForSettingsToLocalStorage(settingsWithCounts, data.transactions)
   saveArrayToLocalStorage('invoices', data.invoices, encodeInvoice)
   saveArrayToLocalStorage('goals', data.goals, encodeGoal)
   saveArrayToLocalStorage('debts', data.debts, encodeDebt)
@@ -143,6 +155,7 @@ type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'>
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
 type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
+type EncodedTransactionsEnvelope = { version: 2; byPerson: Record<string, EncodedTransaction[]> }
 
 function encodePayment(p: Payment): EncodedPayment {
   return { ...p, date: iso8601NoMillis(p.date) }
@@ -235,6 +248,119 @@ function encodeTransaction(t: Transaction): EncodedTransaction {
 function decodeTransaction(x: unknown): Transaction {
   const o = x as EncodedTransaction
   return { ...o, date: parseISO8601(o.date), tags: o.tags ?? [] }
+}
+
+function parseEncodedTransactionsRawFromLocalStorage(): unknown {
+  const key = storageKey(DATA_FILES.transactions)
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    return safeParseJSON(raw)
+  } catch {
+    preserveCorruptItem(key)
+    return null
+  }
+}
+
+function decodeAllByPerson(raw: unknown): { byPerson: Record<string, Transaction[]>; counts: Record<string, number> } {
+  if (Array.isArray(raw)) {
+    const list = raw.map(decodeTransaction)
+    return { byPerson: { legacy: list }, counts: { legacy: list.length } }
+  }
+  const env = raw as EncodedTransactionsEnvelope
+  const obj = env?.byPerson && typeof env.byPerson === 'object' ? env.byPerson : {}
+  const byPerson: Record<string, Transaction[]> = {}
+  const counts: Record<string, number> = {}
+  for (const [pid, arr] of Object.entries(obj)) {
+    if (!Array.isArray(arr)) continue
+    const list = arr.map(decodeTransaction)
+    byPerson[pid] = list
+    counts[pid] = list.length
+  }
+  return { byPerson, counts }
+}
+
+export function loadTransactionsForSettingsFromLocalStorage(settings: AppSettings): { transactions: Transaction[]; counts: Record<string, number> } {
+  const normalized = normalizePeopleSettings(settings)
+  return loadTransactionsForPersonFromLocalStorage(normalized, normalized.activePersonId)
+}
+
+export function loadTransactionsForPersonFromLocalStorage(
+  settings: AppSettings,
+  personId: string,
+): { transactions: Transaction[]; counts: Record<string, number> } {
+  const normalized = normalizePeopleSettings(settings)
+  const raw = parseEncodedTransactionsRawFromLocalStorage()
+  const decoded = decodeAllByPerson(raw)
+  if (!normalized.peopleEnabled) {
+    const all = Object.values(decoded.byPerson).flat()
+    return { transactions: all, counts: decoded.counts }
+  }
+  const pid = String(personId ?? '').trim()
+  const active = pid || normalized.activePersonId
+  const activeList = decoded.byPerson[active]
+  if (activeList) return { transactions: activeList.map((t) => ({ ...t, personId: t.personId || active })), counts: decoded.counts }
+  const legacy = decoded.byPerson.legacy ?? []
+  if (legacy.length > 0 && active === normalized.activePersonId) {
+    const migrated = legacy.map((t) => ({ ...t, personId: active }))
+    const counts = { ...decoded.counts, [active]: migrated.length }
+    delete (counts as any).legacy
+    return { transactions: migrated, counts }
+  }
+  return { transactions: [], counts: decoded.counts }
+}
+
+export function deletePersonTransactionsFromLocalStorage(personId: string): void {
+  const pid = String(personId ?? '').trim()
+  if (!pid) return
+  const key = storageKey(DATA_FILES.transactions)
+  const raw = parseEncodedTransactionsRawFromLocalStorage()
+  if (!raw || Array.isArray(raw)) return
+  const env = raw as EncodedTransactionsEnvelope
+  const byPerson = env?.byPerson && typeof env.byPerson === 'object' ? { ...(env.byPerson as any) } : null
+  if (!byPerson) return
+  if (!(pid in byPerson)) return
+  delete byPerson[pid]
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  localStorage.setItem(key, safeStringifyJSON(payload))
+}
+
+export function saveTransactionsForPersonToLocalStorage(settings: AppSettings, personId: string, transactions: Transaction[]): void {
+  const normalized = normalizePeopleSettings(settings)
+  const pid = String(personId ?? '').trim()
+  if (!pid) return
+  const key = storageKey(DATA_FILES.transactions)
+  if (!normalized.peopleEnabled) {
+    localStorage.setItem(key, safeStringifyJSON(transactions.map(encodeTransaction)))
+    return
+  }
+  const raw = parseEncodedTransactionsRawFromLocalStorage()
+  const env = raw && !Array.isArray(raw) ? (raw as EncodedTransactionsEnvelope) : null
+  const byPerson: Record<string, EncodedTransaction[]> =
+    env?.byPerson && typeof env.byPerson === 'object' ? ({ ...(env.byPerson as any) } as any) : {}
+  byPerson[pid] = transactions.map((t) => encodeTransaction({ ...t, personId: t.personId || pid }))
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  localStorage.setItem(key, safeStringifyJSON(payload))
+}
+
+function saveTransactionsForSettingsToLocalStorage(settings: AppSettings, activeTransactions: Transaction[]): void {
+  const normalized = normalizePeopleSettings(settings)
+  const key = storageKey(DATA_FILES.transactions)
+  if (!normalized.peopleEnabled) {
+    localStorage.setItem(key, safeStringifyJSON(activeTransactions.map(encodeTransaction)))
+    return
+  }
+  const existing = decodeAllByPerson(parseEncodedTransactionsRawFromLocalStorage())
+  const byPerson: Record<string, EncodedTransaction[]> = {}
+  for (const [pid, tx] of Object.entries(existing.byPerson)) {
+    if (pid === 'legacy') continue
+    byPerson[pid] = tx.map(encodeTransaction)
+  }
+  byPerson[normalized.activePersonId] = activeTransactions.map((t) =>
+    encodeTransaction({ ...t, personId: t.personId || normalized.activePersonId }),
+  )
+  const payload: EncodedTransactionsEnvelope = { version: 2, byPerson }
+  localStorage.setItem(key, safeStringifyJSON(payload))
 }
 
 function encodeGoal(g: Goal): EncodedGoal {

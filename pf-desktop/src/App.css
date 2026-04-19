@@ -154,6 +154,12 @@
   z-index: 1;
 }
 
+.toolbarLeft {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .toolbarTitle {
   font-size: 13px;
   font-weight: 700;
@@ -220,6 +226,37 @@
   color: var(--muted);
 }
 
+.filesSearch {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(38, 41, 45, 0.92);
+  color: var(--text-h);
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.filesSearch::placeholder {
+  color: var(--muted);
+}
+
+.fileTitleInput {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(38, 41, 45, 0.92);
+  color: var(--text-h);
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 13px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toolbarPlus {
   appearance: none;
   border: 1px solid var(--border-2);
@@ -268,6 +305,20 @@
   border: 1px solid rgba(10, 132, 255, 0.35);
   padding: 2px 8px;
   border-radius: 999px;
+}
+
+.personBadge {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(52, 199, 89, 0.75);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  padding: 2px 10px;
+  border-radius: 999px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title {
@@ -739,6 +790,55 @@
 
 .listItem.active {
   background: var(--accent-bg);
+}
+
+.folderRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border-2);
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.folderRow:hover {
+  background: var(--hover);
+}
+
+.folderRow.active {
+  background: var(--accent-bg);
+}
+
+.folderRowMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folderRowTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderRowMeta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.folderRowActions {
+  display: flex;
+  gap: 6px;
 }
 
 .listTitle {

@@ -222,7 +222,7 @@ jobs:
           if gh release view "$TAG" --repo "${RELEASES_REPO}" >/dev/null 2>&1; then
             echo "Release exists: ${RELEASES_REPO} $TAG"
           else
-            gh release create "$TAG" --repo "${RELEASES_REPO}" --title "$TAG" --notes ""
+            gh release create "$TAG" --repo "${RELEASES_REPO}" --title "$TAG" --generate-notes
           fi
 
           gh release upload "$TAG" --repo "${RELEASES_REPO}" --clobber \

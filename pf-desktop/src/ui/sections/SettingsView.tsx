@@ -6,10 +6,13 @@ import { buildBillsIcs } from '../../domain/calendarIcs'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
 import { getMe } from '../../auth/authApi'
 import { useAuth } from '../../auth/AuthProvider'
+import { preservePrefsAcrossLocalStorageClear, savePreferredDisplayCurrencyCode } from '../../storage/userPrefs'
+import { isAdvancedAccount } from '../../licensing/licenseGates'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
   const auth = useAuth()
+  const advanced = useMemo(() => isAdvancedAccount(auth.entitlements), [auth.entitlements])
   const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'account' | 'data' | 'updates'>(
     'general',
   )
@@ -140,13 +143,33 @@ export function SettingsView() {
 
   async function importBackupJsonClick() {
     setDataStatus('')
-    const msg = await importBackupFromJson(dispatch)
+    const datasets = {
+      settings: state.settings,
+      bills: state.bills,
+      incomes: state.incomes,
+      accounts: state.accounts,
+      transactions: state.transactions,
+      invoices: state.invoices,
+      goals: state.goals,
+      debts: state.debts,
+    }
+    const msg = await importBackupFromJson(dispatch, datasets)
     setDataStatus(msg)
   }
 
   async function importBackupFolderClick() {
     setDataStatus('')
-    const msg = await importBackupFromFolder(dispatch)
+    const datasets = {
+      settings: state.settings,
+      bills: state.bills,
+      incomes: state.incomes,
+      accounts: state.accounts,
+      transactions: state.transactions,
+      invoices: state.invoices,
+      goals: state.goals,
+      debts: state.debts,
+    }
+    const msg = await importBackupFromFolder(dispatch, datasets)
     setDataStatus(msg)
   }
 
@@ -155,16 +178,34 @@ export function SettingsView() {
     if (!window.confirm('This will permanently delete ALL your data (bills, income, accounts, transactions, goals, debts, attachments). Continue?')) return
     if (!window.confirm('Are you absolutely sure? This cannot be undone.')) return
     try {
+      savePreferredDisplayCurrencyCode(settings.displayCurrencyCode)
       localStorage.removeItem('Kivana/didCompleteOnboarding')
       if (isTauriRuntime()) {
         const { invoke } = await import('@tauri-apps/api/core')
         await invoke('reset_all_data')
       } else {
-        localStorage.clear()
+        preservePrefsAcrossLocalStorageClear()
       }
       window.location.reload()
     } catch (e: any) {
       setDataStatus(`Failed to clear data: ${String(e?.message ?? e)}`)
+    }
+  }
+
+  async function migrateLegacyDataClick() {
+    setDataStatus('')
+    if (!isTauriRuntime()) {
+      setDataStatus('Migration requires the desktop app (Tauri).')
+      return
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const msg = (await invoke('migrate_legacy_appsupport_data')) as any
+      const s = String(msg ?? '').trim()
+      setDataStatus(s || 'Migration complete.')
+      if (s.startsWith('Migrated:')) window.location.reload()
+    } catch (e: any) {
+      setDataStatus(`Migration failed: ${String(e?.message ?? e)}`)
     }
   }
 
@@ -352,6 +393,21 @@ export function SettingsView() {
               onChange={(e) => updateSettings({ hideAccountBalances: e.target.checked })}
             />
           </div>
+
+          {advanced ? (
+            <div className="settingsRow">
+              <div className="settingsRowText">
+                <div className="settingsRowLabel">People (separate transactions)</div>
+                <div className="settingsRowHint">Adds profiles so each person has their own transactions list.</div>
+              </div>
+              <input
+                className="settingsSwitch"
+                type="checkbox"
+                checked={settings.peopleEnabled}
+                onChange={(e) => updateSettings({ peopleEnabled: e.target.checked })}
+              />
+            </div>
+          ) : null}
         </div>
         ) : null}
 
@@ -648,6 +704,9 @@ export function SettingsView() {
               </button>
               <button type="button" onClick={() => void importBackupJsonClick()}>
                 Import JSON
+              </button>
+              <button type="button" onClick={() => void migrateLegacyDataClick()}>
+                Migrate legacy data
               </button>
               <button type="button" onClick={() => void clearAllDataClick()} className="btnDanger">
                 Clear all data

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
-import type { BillCategory, Transaction, TransactionKind, UUID } from '../../domain/models'
+import type { BillCategory, Invoice, InvoiceAttachment, Transaction, TransactionKind, UUID } from '../../domain/models'
 import { currency } from '../../domain/finance'
 import { fromDateInputValue, toDateInputValue } from '../date'
 import { parseCsvRows, rowsToTransactions } from '../../domain/csvImport'
@@ -17,10 +17,27 @@ import { isTauriRuntime } from '../../storage/tauriJsonStore'
 import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import { AI_TRANSACTIONS_AUTOMATION_EVENT, type TransactionsAutomationRequest } from '../../ai/experimentalGuiAutomation'
+import { normalizePeopleSettings, visibleTransactions } from '../../domain/people'
+
+const FILES_IMPORT_PDF_EVENT = 'files:import_pdf_to_transactions'
 
 export function TransactionsView() {
   const { state, dispatch } = useAppStore()
   const selectedId = state.ui.selectedTransactionId
+  const personTransactions = useMemo(() => visibleTransactions(state.transactions, state.settings), [state.settings, state.transactions])
+  const peopleSettings = useMemo(() => normalizePeopleSettings(state.settings as any), [state.settings])
+  const activePerson = useMemo(() => {
+    return peopleSettings.people.find((p) => p.id === peopleSettings.activePersonId) ?? null
+  }, [peopleSettings.activePersonId, peopleSettings.people])
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllTyped, setDeleteAllTyped] = useState('')
+  const [importDuplicateModal, setImportDuplicateModal] = useState<{
+    source: 'CSV' | 'PDF'
+    tx: Transaction[]
+    autoCount: number
+    duplicateKeysInFile: string[]
+    duplicateKeysExisting: string[]
+  } | null>(null)
   const [search, setSearch] = useState('')
   const [accountFilterId, setAccountFilterId] = useState<UUID | 'all'>('all')
   const [kindFilter, setKindFilter] = useState<TransactionKind | 'all'>('all')
@@ -62,6 +79,63 @@ export function TransactionsView() {
   const enableTaxPdf = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TAX_PDF === '1'
   const enableGuiAutomation =
     (import.meta.env.DEV && import.meta.env.VITE_ENABLE_AI_GUI !== '0') || import.meta.env.VITE_ENABLE_AI_GUI === '1'
+
+  function txnDupeKey(t: Transaction): string {
+    const day = toDateInputValue(t.date)
+    const cents = Math.round(Number(t.amount.value) * 100)
+    return `${t.kind}|${day}|${t.amount.currencyCode}|${cents}`
+  }
+
+  function uniqueTags(tags: string[]): string[] {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const raw of tags) {
+      const t = String(raw || '').trim()
+      if (!t) continue
+      if (seen.has(t)) continue
+      seen.add(t)
+      out.push(t)
+    }
+    return out
+  }
+
+  function analyzeDuplicates(imported: Transaction[]): { duplicateKeysInFile: string[]; duplicateKeysExisting: string[] } {
+    const existingKeys = new Set<string>()
+    for (const t of state.transactions) existingKeys.add(txnDupeKey(t))
+
+    const counts = new Map<string, number>()
+    for (const t of imported) {
+      const k = txnDupeKey(t)
+      counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+
+    const duplicateKeysInFile: string[] = []
+    const duplicateKeysExisting: string[] = []
+    for (const [k, c] of counts) {
+      if (c > 1) duplicateKeysInFile.push(k)
+      if (existingKeys.has(k)) duplicateKeysExisting.push(k)
+    }
+    return { duplicateKeysInFile, duplicateKeysExisting }
+  }
+
+  function openDuplicateImportModal(source: 'CSV' | 'PDF', imported: Transaction[], autoCount: number) {
+    const { duplicateKeysInFile, duplicateKeysExisting } = analyzeDuplicates(imported)
+    if (duplicateKeysInFile.length === 0 && duplicateKeysExisting.length === 0) return false
+    setImportDuplicateModal({ source, tx: imported, autoCount, duplicateKeysInFile, duplicateKeysExisting })
+    return true
+  }
+
+  function commitImportTransactions(imported: Transaction[], autoCount: number) {
+    if (imported.length === 0) return
+    for (const t of imported) {
+      dispatch({ type: 'transactions/add', transaction: t })
+    }
+    if (autoCount) {
+      window.alert(`Import complete. Imported ${imported.length} transactions. Auto-categorized ${autoCount}.`)
+    } else {
+      window.alert(`Import complete. Imported ${imported.length} transactions.`)
+    }
+  }
 
   function payeeGroupKey(raw: string | null | undefined): string {
     const s = (raw ?? '').trim()
@@ -137,7 +211,7 @@ export function TransactionsView() {
 
   const payeeGroups = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const t of state.transactions) {
+    for (const t of personTransactions) {
       const k = payeeGroupKey(t.payee)
       if (!k) continue
       counts.set(k, (counts.get(k) ?? 0) + 1)
@@ -147,11 +221,11 @@ export function TransactionsView() {
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)))
       .slice(0, 60)
     return rows
-  }, [state.transactions])
+  }, [personTransactions])
 
   const customExpenseCategoryNames = useMemo(() => {
     const set = new Set<string>()
-    for (const t of state.transactions) {
+    for (const t of personTransactions) {
       if (t.kind !== 'expense') continue
       const v = (t.customCategoryName ?? '').trim()
       if (v) set.add(v)
@@ -161,11 +235,11 @@ export function TransactionsView() {
       if (v) set.add(v)
     }
     return [...set].sort((a, b) => a.localeCompare(b))
-  }, [state.bills, state.transactions])
+  }, [personTransactions, state.bills])
 
   const payeeExpenseCategorization = useMemo(() => {
     const countsByPayee = new Map<string, Map<string, number>>()
-    for (const t of state.transactions) {
+    for (const t of personTransactions) {
       if (t.kind !== 'expense') continue
       const key = payeeGroupKey(t.payee)
       if (!key) continue
@@ -193,7 +267,7 @@ export function TransactionsView() {
       if (best) out.set(key, best)
     }
     return out
-  }, [state.transactions])
+  }, [personTransactions])
 
   const largeListThreshold = 2000
   const hasAnyFilters = useMemo(() => {
@@ -212,11 +286,11 @@ export function TransactionsView() {
   }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, kindFilter, payeeFilter, search, sort, sourceFilter])
 
   const isListGated =
-    !allowLargeUnfilteredList && !hasAnyFilters && !selectedId && selectedIds.size === 0 && state.transactions.length > largeListThreshold
+    !allowLargeUnfilteredList && !hasAnyFilters && !selectedId && selectedIds.size === 0 && personTransactions.length > largeListThreshold
 
   const filtered = useMemo(() => {
     if (isListGated) return []
-    let items = state.transactions
+    let items = personTransactions
     if (accountFilterId !== 'all') {
       items = items.filter((t) => t.accountId === accountFilterId || t.toAccountId === accountFilterId)
     }
@@ -326,7 +400,7 @@ export function TransactionsView() {
       default:
         return [...items].sort((a, b) => signedAmount(b) - signedAmount(a))
     }
-  }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, isListGated, kindFilter, payeeFilter, search, sort, sourceFilter, state.transactions])
+  }, [accountFilterId, categoryFilter, dateFilter, dateFrom, dateTo, isListGated, kindFilter, payeeFilter, personTransactions, search, sort, sourceFilter])
 
   const virtualWindow = useMemo(() => {
     const total = filtered.length
@@ -470,12 +544,8 @@ export function TransactionsView() {
   function deleteAllTransactions() {
     const n = state.transactions.length
     if (n === 0) return
-    if (!window.confirm(`Delete ALL ${n.toLocaleString()} transactions? This cannot be undone.`)) return
-    const typed = (window.prompt('Type DELETE ALL to confirm') ?? '').trim()
-    if (typed !== 'DELETE ALL') return
-    dispatch({ type: 'transactions/clearAll' })
-    setSelectedIds(new Set())
-    window.alert('All transactions deleted.')
+    setDeleteAllTyped('')
+    setDeleteAllOpen(true)
   }
 
   function updateSelected(patch: Partial<Transaction>) {
@@ -611,6 +681,40 @@ export function TransactionsView() {
     }
   }
 
+  function wizardQuickApplyAndNext(customName: string) {
+    const g = wizardGroups[wizardIndex]
+    if (!g) return
+    const custom = String(customName ?? '').trim()
+    if (!custom) return
+    const finalCategory: BillCategory = 'other'
+    const finalCustom = custom
+    const byId = new Map<string, Transaction>()
+    for (const t of state.transactions) byId.set(t.id, t)
+    const updates: Transaction[] = []
+    for (const id of g.ids) {
+      const t = byId.get(id)
+      if (!t) continue
+      if (t.kind !== 'expense') continue
+      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+      if (!isUncategorized) continue
+      updates.push({
+        ...t,
+        category: finalCategory,
+        customCategoryName: finalCustom,
+      })
+    }
+    if (updates.length > 0) {
+      dispatch({ type: 'transactions/bulkUpdate', transactions: updates })
+    }
+    setWizardCategory('other')
+    setWizardCustomName(finalCustom)
+    if (wizardIndex >= wizardGroups.length - 1) {
+      closeCategorizeWizard()
+    } else {
+      setWizardIndex((i) => i + 1)
+    }
+  }
+
   function applyBulkCategoryToSelection() {
     if (selectedIds.size === 0) return
     const byId = new Map<string, Transaction>()
@@ -636,6 +740,7 @@ export function TransactionsView() {
       return
     }
     dispatch({ type: 'transactions/bulkUpdate', transactions: updates })
+    setSelectedIds(new Set())
     if (skipped > 0) {
       window.alert(`Updated ${updates.length} expense transactions. Skipped ${skipped} non-expense transactions.`)
     } else {
@@ -740,6 +845,34 @@ export function TransactionsView() {
       const pdfArrayBuffer = doc.output('arraybuffer')
       const pdfBytes = Array.from(new Uint8Array(pdfArrayBuffer))
       await invoke('export_pdf', { destinationPath: filePath, pdfContent: pdfBytes })
+      try {
+        const invoiceId = crypto.randomUUID()
+        const attachmentId = crypto.randomUUID()
+        const saved = (await invoke('save_invoice_attachment', {
+          invoiceId,
+          attachmentId,
+          sourcePath: filePath,
+          displayName: defaultFileName,
+        })) as { stored_relative_path: string; display_name: string }
+        const att: InvoiceAttachment = {
+          id: attachmentId,
+          displayName: saved.display_name,
+          storedRelativePath: saved.stored_relative_path,
+          createdAt: new Date(),
+        }
+        const inv: Invoice = {
+          id: invoiceId,
+          title,
+          createdAt: new Date(),
+          invoiceDate: new Date(),
+          vendor: null,
+          client: null,
+          total: null,
+          attachments: [att],
+        }
+        dispatch({ type: 'invoices/add', invoice: inv })
+      } catch {
+      }
       window.alert('PDF saved successfully!')
     } else {
       doc.save(`transactions-summary-${new Date().toISOString().slice(0, 10)}.pdf`)
@@ -861,6 +994,23 @@ export function TransactionsView() {
     }
   }, [cisAlreadyDeducted, enableGuiAutomation, payeeGroups, selectedTx, state.transactions, taxBase, taxOverrideAmount, taxOverrideEnabled, taxRatePct])
 
+  useEffect(() => {
+    function handler(e: Event) {
+      const ev = e as CustomEvent
+      const name = String((ev as any)?.detail?.name ?? '').trim() || 'statement.pdf'
+      const bytesBase64 = String((ev as any)?.detail?.bytesBase64 ?? '').trim()
+      const mime = String((ev as any)?.detail?.mime ?? 'application/pdf').trim()
+      if (!bytesBase64) return
+      const bin = atob(bytesBase64)
+      const out = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+      const file = new File([out], name, { type: mime || 'application/pdf' })
+      void onPickPdf(file)
+    }
+    window.addEventListener(FILES_IMPORT_PDF_EVENT, handler as any)
+    return () => window.removeEventListener(FILES_IMPORT_PDF_EVENT, handler as any)
+  }, [pdfFormat, state.accounts, state.settings, state.transactions])
+
   function importCsvClick() {
     fileInputRef.current?.click()
   }
@@ -903,10 +1053,8 @@ export function TransactionsView() {
       window.alert('Import complete. No transactions were imported.')
       return
     }
-    for (const t of imported) {
-      dispatch({ type: 'transactions/add', transaction: t })
-    }
-    window.alert(`Import complete. Imported ${imported.length} transactions.${autoCount ? ` Auto-categorized ${autoCount}.` : ''}`)
+    if (openDuplicateImportModal('CSV', imported, autoCount)) return
+    commitImportTransactions(imported, autoCount)
   }
 
   async function onPickPdf(file: File | null) {
@@ -940,10 +1088,8 @@ export function TransactionsView() {
         window.alert('Import complete. No transactions could be identified in the PDF.')
         return
       }
-      for (const t of imported) {
-        dispatch({ type: 'transactions/add', transaction: t })
-      }
-      window.alert(`Import complete. Imported ${imported.length} transactions.${autoCount ? ` Auto-categorized ${autoCount}.` : ''}`)
+      if (openDuplicateImportModal('PDF', imported, autoCount)) return
+      commitImportTransactions(imported, autoCount)
     } catch (e) {
       console.error(e)
       window.alert('Failed to parse PDF file. Ensure it is a valid bank statement PDF.')
@@ -1160,6 +1306,123 @@ export function TransactionsView() {
 
   return (
     <>
+      {importDuplicateModal ? (
+        <div
+          className="modalBackdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setImportDuplicateModal(null)
+          }}
+        >
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(760px, calc(100vw - 32px))' }}>
+            <div className="modalTitle">Possible duplicates found</div>
+            <div className="note">
+              Import source: {importDuplicateModal.source}
+              {peopleSettings.peopleEnabled && activePerson ? ` • Person: ${activePerson.name}` : ''}
+            </div>
+            <div className="note" style={{ marginTop: 8 }}>
+              {importDuplicateModal.duplicateKeysInFile.length
+                ? `${importDuplicateModal.duplicateKeysInFile.length} duplicate pattern(s) inside this file`
+                : 'No duplicates inside this file'}
+              {importDuplicateModal.duplicateKeysExisting.length
+                ? ` • ${importDuplicateModal.duplicateKeysExisting.length} match existing transactions`
+                : ''}
+            </div>
+
+            <div className="groupBox" style={{ marginTop: 12 }}>
+              <div className="groupTitle">Preview</div>
+              <div className="note">Duplicates will be imported, but marked as Verify.</div>
+              <div className="list" style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto' }}>
+                {(() => {
+                  const inFile = new Set(importDuplicateModal.duplicateKeysInFile)
+                  const inExisting = new Set(importDuplicateModal.duplicateKeysExisting)
+                  const dupes = importDuplicateModal.tx
+                    .map((t) => ({ t, k: txnDupeKey(t) }))
+                    .filter((x) => inFile.has(x.k) || inExisting.has(x.k))
+                    .slice(0, 60)
+                  return dupes.map(({ t, k }) => {
+                    const reasons = [inFile.has(k) ? 'In file' : null, inExisting.has(k) ? 'Already exists' : null].filter(Boolean).join(' • ')
+                    return (
+                      <div key={t.id} className="listItem" style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'start' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-h)' }}>{t.payee ?? t.kind}</div>
+                            <div className="note">
+                              {toDateInputValue(t.date)} • {currency(t.kind === 'expense' ? -t.amount.value : t.amount.value, t.amount.currencyCode)}
+                              {reasons ? ` • ${reasons}` : ''}
+                            </div>
+                          </div>
+                          <span className="pill" data-tone="neg">
+                            Verify
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+
+            <div className="modalActions">
+              <button type="button" onClick={() => setImportDuplicateModal(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btnPrimary"
+                onClick={() => {
+                  const inFile = new Set(importDuplicateModal.duplicateKeysInFile)
+                  const inExisting = new Set(importDuplicateModal.duplicateKeysExisting)
+                  const marked = importDuplicateModal.tx.map((t) => {
+                    const k = txnDupeKey(t)
+                    if (!inFile.has(k) && !inExisting.has(k)) return t
+                    return { ...t, tags: uniqueTags([...(t.tags ?? []), 'needs-review', 'duplicate']) }
+                  })
+                  commitImportTransactions(marked, importDuplicateModal.autoCount)
+                  setImportDuplicateModal(null)
+                }}
+              >
+                Import anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deleteAllOpen ? (
+        <div className="modalBackdrop" onMouseDown={() => setDeleteAllOpen(false)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalTitle">Delete all transactions</div>
+            <div className="note">
+              This will permanently delete <strong>{state.transactions.length.toLocaleString()}</strong>{' '}
+              transaction(s)
+              {peopleSettings.peopleEnabled && activePerson ? ` for ${activePerson.name}` : ''}. This cannot be undone.
+            </div>
+            <div className="note" style={{ marginTop: 8 }}>
+              Type <strong>DELETE ALL</strong> to confirm.
+            </div>
+            <div className="field" style={{ marginTop: 12 }}>
+              <div className="fieldLabel">Confirmation</div>
+              <input value={deleteAllTyped} onChange={(e) => setDeleteAllTyped(e.target.value)} />
+            </div>
+            <div className="modalActions">
+              <button type="button" onClick={() => setDeleteAllOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btnDanger"
+                disabled={deleteAllTyped.trim() !== 'DELETE ALL'}
+                onClick={() => {
+                  dispatch({ type: 'transactions/clearAll' })
+                  setSelectedIds(new Set())
+                  setDeleteAllOpen(false)
+                }}
+              >
+                Delete all
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showCategorizeWizard && wizardCurrentSummary ? (
         <div
           className="modalBackdrop"
@@ -1273,6 +1536,9 @@ export function TransactionsView() {
               <button type="button" onClick={wizardSkip}>
                 Skip
               </button>
+              <button type="button" onClick={() => wizardQuickApplyAndNext('Food')}>
+                Food
+              </button>
               <button type="button" onClick={closeCategorizeWizard}>
                 Close
               </button>
@@ -1287,8 +1553,9 @@ export function TransactionsView() {
         <div className="row">
           <div className="toolbarLeft">
             <div className="toolbarSubtitle">
-              {filtered.length.toLocaleString()} / {state.transactions.length.toLocaleString()} shown
+              {filtered.length.toLocaleString()} / {personTransactions.length.toLocaleString()} shown
               {filterSummary ? ` • ${filterSummary}` : ''}
+              {peopleSettings.peopleEnabled && activePerson ? ` • Person: ${activePerson.name}` : ''}
             </div>
           </div>
           <div className="rowActions">
@@ -1579,7 +1846,7 @@ export function TransactionsView() {
         <div className="list" ref={listRef}>
           {isListGated ? (
             <div className="empty">
-              <div>Lots of transactions ({state.transactions.length}). Apply filters to load them.</div>
+              <div>Lots of transactions ({personTransactions.length}). Apply filters to load them.</div>
               <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button type="button" onClick={() => setDateFilter('last30')}>
                   Last 30 days
@@ -1595,25 +1862,30 @@ export function TransactionsView() {
           ) : (
             <>
               {virtualWindow.topPad > 0 ? <div style={{ height: virtualWindow.topPad }} /> : null}
-              {filtered.slice(virtualWindow.start, virtualWindow.end).map((t) => (
-                <div
-                  key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  className={t.id === selectedId && selectedIds.size === 0 ? 'listItem active txnRow' : 'listItem txnRow'}
-                  style={selectedIds.has(t.id) ? { background: 'var(--accent-bg-strong)' } : {}}
-                  onClick={() => {
-                    if (selectedIds.size > 0) {
-                      toggleSelection(t.id)
-                    } else {
+              {filtered.slice(virtualWindow.start, virtualWindow.end).map((t) => {
+                const isImported = (t.tags ?? []).includes('bank-csv') || (t.tags ?? []).includes('bank-pdf')
+                const noteText = String(t.notes ?? '').trim()
+                const tooltip = isImported && noteText ? noteText.slice(0, 800) : undefined
+                return (
+                  <div
+                    key={t.id}
+                    role="button"
+                    tabIndex={0}
+                    title={tooltip}
+                    className={t.id === selectedId && selectedIds.size === 0 ? 'listItem active txnRow' : 'listItem txnRow'}
+                    style={selectedIds.has(t.id) ? { background: 'var(--accent-bg-strong)' } : {}}
+                    onClick={() => {
+                      if (selectedIds.size > 0) {
+                        toggleSelection(t.id)
+                      } else {
+                        dispatch({ type: 'ui/selectTransaction', id: t.id })
+                      }
+                    }}
+                    onContextMenu={(e) => {
                       dispatch({ type: 'ui/selectTransaction', id: t.id })
-                    }
-                  }}
-                  onContextMenu={(e) => {
-                    dispatch({ type: 'ui/selectTransaction', id: t.id })
-                    rowMenu.open(e)
-                  }}
-                >
+                      rowMenu.open(e)
+                    }}
+                  >
                   <div className="txnCheckWrap" style={{ display: 'grid', placeItems: 'center' }}>
                     <input
                       type="checkbox"
@@ -1630,6 +1902,11 @@ export function TransactionsView() {
                     <div className="txnTitle">
                       <span className="txnTitleText">{txnTitle(t)}</span>
                       {(t.tags ?? []).includes('bank-csv') || (t.tags ?? []).includes('bank-pdf') ? <span className="pill">Imported</span> : null}
+                      {(t.tags ?? []).includes('needs-review') ? (
+                        <span className="pill" data-tone="neg">
+                          Verify
+                        </span>
+                      ) : null}
                     </div>
                     <div className="txnMeta">{txnSubtitle(t)}</div>
                   </div>
@@ -1639,8 +1916,9 @@ export function TransactionsView() {
                     </div>
                     <div className="txnDate">{toDateInputValue(t.date)}</div>
                   </div>
-                </div>
-              ))}
+                  </div>
+                )
+              })}
               {virtualWindow.bottomPad > 0 ? <div style={{ height: virtualWindow.bottomPad }} /> : null}
               {filtered.length === 0 ? <div className="empty">No transactions match the current filters.</div> : null}
             </>
@@ -1891,7 +2169,103 @@ export function TransactionsView() {
                 </div>
               </div>
             ) : (
-              <div className="empty">Select a transaction.</div>
+              <div className="form">
+                {peopleSettings.peopleEnabled && activePerson ? (
+                  <div className="groupBox">
+                    <div className="groupTitle">Person</div>
+                    <div className="note">{activePerson.name}</div>
+                    <label className="field" style={{ marginTop: 10 }}>
+                      <div className="fieldLabel">Name</div>
+                      <input
+                        value={activePerson.name}
+                        onChange={(e) => {
+                          const name = e.target.value
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, name } : p)) },
+                          })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <div className="fieldLabel">Phone</div>
+                      <input
+                        value={activePerson.phone ?? ''}
+                        onChange={(e) => {
+                          const phone = e.target.value || null
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, phone } : p)) },
+                          })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <div className="fieldLabel">Email</div>
+                      <input
+                        value={activePerson.email ?? ''}
+                        onChange={(e) => {
+                          const email = e.target.value || null
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, email } : p)) },
+                          })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <div className="fieldLabel">Address</div>
+                      <textarea
+                        value={activePerson.address ?? ''}
+                        onChange={(e) => {
+                          const address = e.target.value || null
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, address } : p)) },
+                          })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <div className="fieldLabel">Notes</div>
+                      <textarea
+                        value={activePerson.notes ?? ''}
+                        onChange={(e) => {
+                          const notes = e.target.value || null
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, notes } : p)) },
+                          })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <div className="fieldLabel">Amount owed to me</div>
+                      <input
+                        type="number"
+                        value={activePerson.amountOwed == null ? '' : String(activePerson.amountOwed)}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const num = raw.trim() === '' ? null : Number(raw)
+                          const amountOwed = num == null || Number.isNaN(num) ? null : num
+                          dispatch({
+                            type: 'settings/update',
+                            patch: { people: peopleSettings.people.map((p) => (p.id === activePerson.id ? { ...p, amountOwed } : p)) },
+                          })
+                        }}
+                        placeholder="Use negative if they owe you (example: -700)"
+                      />
+                    </label>
+                    {Number(activePerson.amountOwed ?? 0) < 0 ? (
+                      <div className="note">
+                        Reminder active: {activePerson.name} owes you {currency(Math.abs(Number(activePerson.amountOwed ?? 0)), state.settings.displayCurrencyCode)}.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="empty">Select a transaction.</div>
+                )}
+              </div>
             )}
           </div>
         ) : null}

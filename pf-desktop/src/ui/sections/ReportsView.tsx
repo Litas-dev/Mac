@@ -3,6 +3,8 @@ import { useAppStore } from '../../app/appStore'
 import { currency } from '../../domain/finance'
 import { calculateMonthSummary, calculateYearSummary } from '../../domain/reports'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
+import { normalizePeopleSettings, visibleTransactions } from '../../domain/people'
+import type { Invoice, InvoiceAttachment } from '../../domain/models'
 import {
   BarChart,
   Bar,
@@ -32,7 +34,9 @@ const COLORS = [
 ]
 
 export function ReportsView() {
-  const { state } = useAppStore()
+  const { state, dispatch } = useAppStore()
+  const personTransactions = useMemo(() => visibleTransactions(state.transactions, state.settings), [state.settings, state.transactions])
+  const peopleSettings = useMemo(() => normalizePeopleSettings(state.settings as any), [state.settings])
   const PieAny: any = Pie
   const [yearStr, setYearStr] = useState(() => {
     return String(new Date().getFullYear())
@@ -65,9 +69,9 @@ export function ReportsView() {
       startMonth: selectedStartMonth,
       bills: state.bills,
       incomes: state.incomes,
-      transactions: state.transactions,
+      transactions: personTransactions,
     })
-  }, [selectedYear, selectedStartMonth, state.bills, state.incomes, state.transactions])
+  }, [personTransactions, selectedYear, selectedStartMonth, state.bills, state.incomes])
 
   const selectedMonthSummary = useMemo(() => {
     if (selectedMonthIndex === null) return null
@@ -75,9 +79,9 @@ export function ReportsView() {
       month: new Date(selectedYear, selectedStartMonth + selectedMonthIndex, 1),
       bills: state.bills,
       incomes: state.incomes,
-      transactions: state.transactions,
+      transactions: personTransactions,
     })
-  }, [selectedYear, selectedStartMonth, selectedMonthIndex, state.bills, state.incomes, state.transactions])
+  }, [personTransactions, selectedYear, selectedStartMonth, selectedMonthIndex, state.bills, state.incomes])
 
   const chartData = useMemo(() => {
     if (yearSummary) {
@@ -305,6 +309,36 @@ export function ReportsView() {
         const pdfArrayBuffer = doc.output('arraybuffer')
         const pdfBytes = Array.from(new Uint8Array(pdfArrayBuffer))
         await invoke('export_pdf', { destinationPath: filePath, pdfContent: pdfBytes })
+        try {
+          const invoiceId = crypto.randomUUID()
+          const attachmentId = crypto.randomUUID()
+          const saved = (await invoke('save_invoice_attachment', {
+            invoiceId,
+            attachmentId,
+            sourcePath: filePath,
+            displayName: defaultFileName,
+          })) as { stored_relative_path: string; display_name: string }
+          const att: InvoiceAttachment = {
+            id: attachmentId,
+            displayName: saved.display_name,
+            storedRelativePath: saved.stored_relative_path,
+            createdAt: new Date(),
+          }
+          const inv: Invoice = {
+            id: invoiceId,
+            title: `${title} • ${period}`,
+            createdAt: new Date(),
+            personId: peopleSettings.peopleEnabled ? peopleSettings.activePersonId : null,
+            order: Date.now(),
+            invoiceDate: new Date(),
+            vendor: null,
+            client: null,
+            total: null,
+            attachments: [att],
+          }
+          dispatch({ type: 'invoices/add', invoice: inv })
+        } catch {
+        }
         window.alert('PDF saved.')
       } else {
         doc.save(`${title}-${new Date().toISOString().slice(0, 10)}.pdf`)

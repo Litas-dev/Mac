@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { AppStoreContext, type AppAction, type AppState, type AppStore, type Section } from './appStore'
 import { defaultSettings } from '../domain/settings'
 import type { LoadedDatasets } from '../storage/localJsonStore'
-import { loadAllFromLocalStorage, saveAllToLocalStorage } from '../storage/localJsonStore'
-import { isTauriRuntime, loadAllFromTauriFiles, saveAllToTauriFiles } from '../storage/tauriJsonStore'
+import {
+  loadAllFromLocalStorage,
+  loadTransactionsForPersonFromLocalStorage,
+  saveAllToLocalStorage,
+  saveTransactionsForPersonToLocalStorage,
+} from '../storage/localJsonStore'
+import {
+  isTauriRuntime,
+  loadAllFromTauriFiles,
+  loadTransactionsForPersonFromTauriFiles,
+  saveAllToTauriFiles,
+  saveTransactionsForPersonToTauriFiles,
+} from '../storage/tauriJsonStore'
 import {
   advanceRecurrence,
   billClearSnooze,
@@ -16,6 +27,8 @@ import {
 import type { Transaction } from '../domain/models'
 import { scheduleAllNotifications } from '../notifications/notificationScheduler'
 import { applyAutostart } from '../desktop/autostart'
+import { loadPreferredDisplayCurrencyCode, savePreferredDisplayCurrencyCode } from '../storage/userPrefs'
+import { assignMissingInvoicePersonIds, normalizePeopleSettings, withActivePersonCount } from '../domain/people'
 
 const ONBOARDING_KEY = 'Kivana/didCompleteOnboarding'
 
@@ -66,7 +79,36 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'ui/selectDebt':
       return { ...state, ui: { ...state.ui, selectedDebtId: action.id } }
     case 'data/replaceAll':
-      return { ...action.data, ui: state.ui }
+      return {
+        ...{
+          ...action.data,
+          settings: withActivePersonCount(normalizePeopleSettings(action.data.settings), action.data.transactions.length),
+          invoices: assignMissingInvoicePersonIds(action.data.invoices, action.data.settings),
+        },
+        ui: state.ui,
+      }
+    case 'settings/update': {
+      const nextSettings = normalizePeopleSettings({ ...state.settings, ...action.patch } as any)
+      const nextActive = action.patch.activePersonId
+      const didSwitchActive = typeof nextActive === 'string' && nextActive.length > 0 && nextActive !== state.settings.activePersonId
+      const enabledBefore = Boolean(state.settings.peopleEnabled)
+      const enabledAfter = Boolean(nextSettings.peopleEnabled)
+      if (enabledBefore && enabledAfter && didSwitchActive) {
+        const nextCounts = {
+          ...nextSettings.peopleTransactionCounts,
+          [state.settings.activePersonId]: state.transactions.length,
+        }
+        return { ...state, settings: { ...nextSettings, peopleTransactionCounts: nextCounts }, transactions: [], ui: { ...state.ui, selectedTransactionId: null } }
+      }
+      if (!enabledBefore && enabledAfter) {
+        return {
+          ...state,
+          settings: withActivePersonCount(nextSettings, state.transactions.length),
+          invoices: assignMissingInvoicePersonIds(state.invoices, nextSettings),
+        }
+      }
+      return { ...state, settings: withActivePersonCount(nextSettings, state.transactions.length) }
+    }
     case 'bills/add':
       return {
         ...state,
@@ -109,6 +151,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         kind: 'expense',
         date: effectivePaidOn,
         amount: { currencyCode: b.amount.currencyCode, value: Math.abs(b.amount.value) },
+        personId: state.settings.peopleEnabled ? state.settings.activePersonId : null,
         accountId: state.accounts.find((a) => !a.archived)?.id ?? null,
         toAccountId: null,
         category: 'other',
@@ -194,6 +237,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         kind: 'income',
         date: receivedOn,
         amount: { currencyCode: inc.amount.currencyCode, value: Math.abs(inc.amount.value) },
+        personId: state.settings.peopleEnabled ? state.settings.activePersonId : null,
         accountId: state.accounts.find((a) => !a.archived)?.id ?? null,
         toAccountId: null,
         category: null,
@@ -243,11 +287,19 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, accounts: nextAccounts, transactions: nextTransactions, ui: { ...state.ui, selectedAccountId: nextSelected } }
     }
     case 'transactions/add':
-      return {
-        ...state,
-        transactions: [...state.transactions, action.transaction],
-        ui: { ...state.ui, selectedTransactionId: action.transaction.id },
-      }
+      return (() => {
+        const tx =
+          state.settings.peopleEnabled && !action.transaction.personId
+            ? { ...action.transaction, personId: state.settings.activePersonId }
+            : action.transaction
+        const nextTransactions = [...state.transactions, tx]
+        return {
+          ...state,
+          settings: withActivePersonCount(state.settings, nextTransactions.length),
+          transactions: nextTransactions,
+          ui: { ...state.ui, selectedTransactionId: tx.id },
+        }
+      })()
     case 'transactions/update':
       return {
         ...state,
@@ -263,15 +315,34 @@ function reducer(state: AppState, action: AppAction): AppState {
         transactions: state.transactions.map((t) => byId.get(t.id) ?? t),
       }
     }
+    case 'transactions/replaceLoaded':
+      return {
+        ...state,
+        settings: withActivePersonCount(state.settings, action.transactions.length),
+        transactions: action.transactions,
+        ui: { ...state.ui, selectedTransactionId: null },
+      }
     case 'transactions/delete': {
       const next = state.transactions.filter((t) => t.id !== action.id)
       const sel = state.ui.selectedTransactionId === action.id ? null : state.ui.selectedTransactionId
-      return { ...state, transactions: next, ui: { ...state.ui, selectedTransactionId: sel } }
+      return { ...state, settings: withActivePersonCount(state.settings, next.length), transactions: next, ui: { ...state.ui, selectedTransactionId: sel } }
     }
     case 'transactions/clearAll':
-      return { ...state, transactions: [], ui: { ...state.ui, selectedTransactionId: null } }
+      return {
+        ...state,
+        settings: withActivePersonCount(state.settings, 0),
+        transactions: [],
+        ui: { ...state.ui, selectedTransactionId: null },
+      }
     case 'invoices/add':
-      return { ...state, invoices: [...state.invoices, action.invoice] }
+      return (() => {
+        const order = action.invoice.order ?? Date.now()
+        const inv =
+          state.settings.peopleEnabled && !action.invoice.personId
+            ? { ...action.invoice, personId: state.settings.activePersonId, order }
+            : { ...action.invoice, order }
+        return { ...state, invoices: [...state.invoices, inv] }
+      })()
     case 'invoices/update':
       return { ...state, invoices: state.invoices.map((i) => (i.id === action.invoice.id ? action.invoice : i)) }
     case 'invoices/delete':
@@ -331,6 +402,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, () => ({ ...emptyDatasets(), ui: initialUI() }))
   const lastPersisted = useRef<string>('')
   const persistTimer = useRef<number | null>(null)
+  const switchingPerson = useRef(false)
+  const prevActivePersonId = useRef<string | null>(null)
+  const lastStableTransactions = useRef<Transaction[]>([])
 
   const storageMode = useMemo(() => (isTauriRuntime() ? 'tauriFiles' : 'localStorage'), [])
 
@@ -364,11 +438,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       const fallback = defaultSettings()
+      const preferredCurrency = loadPreferredDisplayCurrencyCode()
+      if (preferredCurrency) fallback.displayCurrencyCode = preferredCurrency
+      if (storageMode === 'tauriFiles') {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          const msg = (await invoke('migrate_legacy_appsupport_data')) as any
+          if (typeof msg === 'string' && msg.trim()) console.log(msg)
+        } catch {
+        }
+      }
       const loaded = storageMode === 'tauriFiles' ? await loadAllFromTauriFiles(fallback) : loadAllFromLocalStorage(fallback)
       const billsAfterAuto = processAutoPayments(loaded.bills, new Date())
       const datasets = billsAfterAuto === loaded.bills ? loaded : { ...loaded, bills: billsAfterAuto }
       dispatch({ type: 'data/replaceAll', data: datasets })
       lastPersisted.current = JSON.stringify(datasets)
+      prevActivePersonId.current = datasets.settings.activePersonId
       setReady(true)
     }
     void load()
@@ -376,8 +461,86 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return
+    if (switchingPerson.current) return
+    lastStableTransactions.current = state.transactions
+  }, [ready, state.transactions])
+
+  useLayoutEffect(() => {
+    if (!ready) return
+    if (!state.settings.peopleEnabled) return
+    const current = state.settings.activePersonId
+    const previous = prevActivePersonId.current
+    if (previous && previous !== current) {
+      switchingPerson.current = true
+    }
+  }, [ready, state.settings.activePersonId, state.settings.peopleEnabled])
+
+  useEffect(() => {
+    if (!ready) return
+    const current = state.settings.activePersonId
+    const previous = prevActivePersonId.current
+    if (!state.settings.peopleEnabled) {
+      prevActivePersonId.current = current
+      return
+    }
+    if (!previous || previous === current) {
+      prevActivePersonId.current = current
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const prevStillExists = Boolean(state.settings.people.find((p) => p.id === previous))
+        const oldTransactions = lastStableTransactions.current
+        if (prevStillExists) {
+          if (storageMode === 'tauriFiles') {
+            await saveTransactionsForPersonToTauriFiles(state.settings, previous, oldTransactions)
+          } else {
+            saveTransactionsForPersonToLocalStorage(state.settings, previous, oldTransactions)
+          }
+        }
+        const loaded =
+          storageMode === 'tauriFiles'
+            ? await loadTransactionsForPersonFromTauriFiles(state.settings, current)
+            : loadTransactionsForPersonFromLocalStorage(state.settings, current)
+        if (cancelled) return
+        dispatch({
+          type: 'settings/update',
+          patch: {
+            peopleTransactionCounts: {
+              ...state.settings.peopleTransactionCounts,
+              ...loaded.counts,
+              [previous]: oldTransactions.length,
+              [current]: loaded.transactions.length,
+            },
+          },
+        })
+        dispatch({ type: 'transactions/replaceLoaded', transactions: loaded.transactions })
+        prevActivePersonId.current = current
+        lastStableTransactions.current = loaded.transactions
+      } finally {
+        switchingPerson.current = false
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    ready,
+    state.settings,
+    storageMode,
+  ])
+
+  useEffect(() => {
+    if (!ready) return
     saveOnboardingFlag(state.ui.didCompleteOnboarding)
   }, [ready, state.ui.didCompleteOnboarding])
+
+  useEffect(() => {
+    if (!ready) return
+    savePreferredDisplayCurrencyCode(state.settings.displayCurrencyCode)
+  }, [ready, state.settings.displayCurrencyCode])
 
   useEffect(() => {
     if (!ready) return
@@ -391,6 +554,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return
+    if (switchingPerson.current) return
     if (persistTimer.current) window.clearTimeout(persistTimer.current)
     persistTimer.current = window.setTimeout(() => {
       void persistNow()

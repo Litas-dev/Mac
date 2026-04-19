@@ -28,12 +28,34 @@ export async function registerMenuEvents(getState: () => AppState, dispatch: (a:
   )
   unsubs.push(
     await listen('menu:import_backup_folder', () => {
-      void importBackupFromFolder(dispatch)
+      const state = getState()
+      const datasets = {
+        settings: state.settings,
+        bills: state.bills,
+        incomes: state.incomes,
+        accounts: state.accounts,
+        transactions: state.transactions,
+        invoices: state.invoices,
+        goals: state.goals,
+        debts: state.debts,
+      }
+      void importBackupFromFolder(dispatch, datasets)
     }),
   )
   unsubs.push(
     await listen('menu:import_backup_json', () => {
-      void importBackupFromJson(dispatch)
+      const state = getState()
+      const datasets = {
+        settings: state.settings,
+        bills: state.bills,
+        incomes: state.incomes,
+        accounts: state.accounts,
+        transactions: state.transactions,
+        invoices: state.invoices,
+        goals: state.goals,
+        debts: state.debts,
+      }
+      void importBackupFromJson(dispatch, datasets)
     }),
   )
   unsubs.push(

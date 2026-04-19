@@ -46,6 +46,10 @@ export interface AppSettings {
   availableBalance: number
   preferManualForecastBalance: boolean
   hideAccountBalances: boolean
+  peopleEnabled: boolean
+  people: { id: string; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null; amountOwed?: number | null }[]
+  activePersonId: string
+  peopleTransactionCounts: Record<string, number>
   aiExternalAPIKey?: string | null
 }
 
@@ -76,6 +80,10 @@ export function defaultSettings(): AppSettings {
     availableBalance: 0,
     preferManualForecastBalance: false,
     hideAccountBalances: false,
+    peopleEnabled: false,
+    people: [{ id: 'person-1', name: 'Person 1', phone: null, email: null, address: null, notes: null, amountOwed: null }],
+    activePersonId: 'person-1',
+    peopleTransactionCounts: {},
     aiExternalAPIKey: null,
   }
 }

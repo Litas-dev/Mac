@@ -4,6 +4,7 @@ import { setSection } from '../../app/AppProvider'
 import { billIsPaidFor, billIsSnoozedActive } from '../../domain/models'
 import { currency } from '../../domain/finance'
 import { calculateMonthSummary } from '../../domain/reports'
+import { visibleTransactions } from '../../domain/people'
 import { toDateInputValue } from '../date'
 
 export function DashboardView() {
@@ -12,8 +13,9 @@ export function DashboardView() {
 
   const summary = useMemo(() => {
     const month = new Date(now.getFullYear(), now.getMonth(), 1)
-    return calculateMonthSummary({ month, bills: state.bills, incomes: state.incomes, transactions: state.transactions })
-  }, [now.getFullYear(), now.getMonth(), state.bills, state.incomes, state.transactions])
+    const tx = visibleTransactions(state.transactions, state.settings)
+    return calculateMonthSummary({ month, bills: state.bills, incomes: state.incomes, transactions: tx })
+  }, [now.getFullYear(), now.getMonth(), state.bills, state.incomes, state.settings, state.transactions])
 
   const nextBill = useMemo(() => {
     const candidates = state.bills

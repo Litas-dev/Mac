@@ -11,14 +11,22 @@ import { CommandBar } from './ui/CommandBar'
 import { UpdateWatcher } from './ui/UpdateWatcher'
 import { useAuth } from './auth/AuthProvider'
 import { LoginModal } from './ui/LoginModal'
+import { normalizePeopleSettings } from './domain/people'
+import { isAdvancedAccount } from './licensing/licenseGates'
 
 function App() {
   const store = useAppStore()
   const { state, dispatch } = store
   const auth = useAuth()
+  const advanced = isAdvancedAccount(auth.entitlements)
   const stateRef = useRef(store.state)
   stateRef.current = store.state
   const accountLabel = auth.session ? displayNameForEmail(auth.session.userEmail) : ''
+  const peopleSettings = normalizePeopleSettings(state.settings as any)
+  const activePerson =
+    advanced && peopleSettings.peopleEnabled ? peopleSettings.people.find((p) => p.id === peopleSettings.activePersonId) ?? null : null
+  const sectionTitle = titleForSection(state.ui.section)
+  const showCommandBar = state.ui.section === 'bills'
 
   useEffect(() => {
     if (!isTauriRuntime()) return
@@ -46,10 +54,7 @@ function App() {
             <div className="windowDragHandle" data-tauri-drag-region />
           </div>
           <div className="appToolbar" data-tauri-drag-region>
-            <CommandBar />
-            <div className="toolbarRight">
-              <div className="toolbarTitle">{titleForSection(state.ui.section)}</div>
-              <input className="toolbarSearch" placeholder="Search" />
+            <div className="toolbarLeft">
               {auth.ready ? (
                 auth.session ? (
                   <button type="button" className="accountButton" onClick={() => auth.setOpenLogin(true)}>
@@ -66,6 +71,11 @@ function App() {
                   </button>
                 )
               ) : null}
+            </div>
+            {showCommandBar ? <CommandBar /> : <div />}
+            <div className="toolbarRight">
+              {sectionTitle ? <div className="toolbarTitle">{sectionTitle}</div> : null}
+              {activePerson ? <span className="personBadge">{activePerson.name}</span> : null}
             </div>
           </div>
         </header>
@@ -98,7 +108,9 @@ function titleForSection(section: string): string {
     case 'accounts':
       return 'Accounts'
     case 'transactions':
-      return 'Transactions'
+      return ''
+    case 'invoices':
+      return 'Files'
     case 'goals':
       return 'Goals'
     case 'debts':

@@ -1,5 +1,6 @@
 import type { AppState, Section } from '../app/appStore'
 import { billIsPaidFor, billIsSnoozedActive } from '../domain/models'
+import { visibleInvoices, visibleTransactions } from '../domain/people'
 
 export type SidebarGroup = { title: string; items: SidebarItem[] }
 
@@ -63,7 +64,7 @@ export function buildSidebar(state: AppState, advanced: boolean): SidebarGroup[]
         items: [
           { section: 'accounts', title: 'Accounts', subtitle: accountsSubtitle(state), icon: 'accounts' },
           { section: 'transactions', title: 'Transactions', subtitle: transactionsSubtitle(state, now), icon: 'transactions' },
-          { section: 'invoices', title: 'Invoices', subtitle: 'Import images', icon: 'invoices' },
+          { section: 'invoices', title: 'Files', subtitle: filesSubtitle(state), icon: 'invoices' },
           { section: 'goals', title: 'Goals', subtitle: goalsSubtitle(state), icon: 'goals' },
           { section: 'debts', title: 'Debts', subtitle: debtsSubtitle(state), icon: 'debts' },
         ],
@@ -128,7 +129,8 @@ function accountsSubtitle(state: AppState): string {
 function transactionsSubtitle(state: AppState, now: Date): string {
   const past = new Date(now)
   past.setDate(past.getDate() - 30)
-  const count = state.transactions.filter((t) => t.date >= past).length
+  const tx = visibleTransactions(state.transactions, state.settings)
+  const count = tx.filter((t) => t.date >= past).length
   if (count === 0) return 'No activity'
   if (count === 1) return '1 item'
   return `${count} items`
@@ -146,6 +148,14 @@ function debtsSubtitle(state: AppState): string {
   if (count === 0) return 'No debts'
   if (count === 1) return '1 debt'
   return `${count} debts`
+}
+
+function filesSubtitle(state: AppState): string {
+  const items = visibleInvoices(state.invoices, state.settings)
+  const count = items.length
+  if (count === 0) return 'No files'
+  if (count === 1) return '1 file'
+  return `${count} files`
 }
 
 function dueSoonSubtitle(state: AppState, now: Date): string {

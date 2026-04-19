@@ -2,6 +2,7 @@ import type { LoadedDatasets } from '../storage/localJsonStore'
 import { attachmentPathsForBackup, decodeBackupToDatasets, encodeBackupV2 } from '../storage/backup'
 import { isTauriRuntime } from '../storage/tauriJsonStore'
 import type { AppAction } from '../app/appStore'
+import { normalizePeopleSettings } from '../domain/people'
 
 export async function exportBackup(datasets: LoadedDatasets): Promise<string> {
   const json = encodeBackupV2(datasets)
@@ -33,7 +34,7 @@ export async function exportBackup(datasets: LoadedDatasets): Promise<string> {
   return 'Export complete.'
 }
 
-export async function importBackupFromJson(dispatch: (a: AppAction) => void): Promise<string> {
+export async function importBackupFromJson(dispatch: (a: AppAction) => void, currentDatasets?: LoadedDatasets): Promise<string> {
   if (!isTauriRuntime()) return 'Import requires the desktop app (Tauri).'
   const { open } = await import('@tauri-apps/plugin-dialog')
   const { invoke } = await import('@tauri-apps/api/core')
@@ -45,12 +46,29 @@ export async function importBackupFromJson(dispatch: (a: AppAction) => void): Pr
   if (!path || Array.isArray(path)) return 'Import cancelled.'
   const source = (await invoke('read_backup_source', { path })) as { json: string; attachments_source_dir: string | null }
   const decoded = decodeBackupToDatasets(source.json)
+  const current = currentDatasets ? { ...currentDatasets, settings: normalizePeopleSettings(currentDatasets.settings) } : null
+  const shouldOfferPersonImport = Boolean(current && current.settings.peopleEnabled)
+  if (shouldOfferPersonImport) {
+    const ok = window.confirm('Import this backup into the currently selected person (merge transactions) instead of replacing all data?')
+    if (ok) {
+      const existingIds = new Set(current!.transactions.map((t) => t.id))
+      const pid = current!.settings.activePersonId
+      const imported = decoded.datasets.transactions.map((t) => {
+        const id = existingIds.has(t.id) ? crypto.randomUUID() : t.id
+        existingIds.add(id)
+        return { ...t, id, personId: pid }
+      })
+      dispatch({ type: 'data/replaceAll', data: { ...current!, transactions: [...current!.transactions, ...imported] } })
+      clearSelections(dispatch)
+      return `Imported backup v${decoded.version} into current person.`
+    }
+  }
   dispatch({ type: 'data/replaceAll', data: decoded.datasets })
   clearSelections(dispatch)
   return `Imported backup v${decoded.version}.`
 }
 
-export async function importBackupFromFolder(dispatch: (a: AppAction) => void): Promise<string> {
+export async function importBackupFromFolder(dispatch: (a: AppAction) => void, currentDatasets?: LoadedDatasets): Promise<string> {
   if (!isTauriRuntime()) return 'Import requires the desktop app (Tauri).'
   const { open } = await import('@tauri-apps/plugin-dialog')
   const { invoke } = await import('@tauri-apps/api/core')
@@ -58,6 +76,23 @@ export async function importBackupFromFolder(dispatch: (a: AppAction) => void): 
   if (!dir || Array.isArray(dir)) return 'Import cancelled.'
   const source = (await invoke('read_backup_source', { path: dir })) as { json: string; attachments_source_dir: string | null }
   const decoded = decodeBackupToDatasets(source.json)
+  const current = currentDatasets ? { ...currentDatasets, settings: normalizePeopleSettings(currentDatasets.settings) } : null
+  const shouldOfferPersonImport = Boolean(current && current.settings.peopleEnabled)
+  if (shouldOfferPersonImport) {
+    const ok = window.confirm('Import this backup into the currently selected person (merge transactions) instead of replacing all data?')
+    if (ok) {
+      const existingIds = new Set(current!.transactions.map((t) => t.id))
+      const pid = current!.settings.activePersonId
+      const imported = decoded.datasets.transactions.map((t) => {
+        const id = existingIds.has(t.id) ? crypto.randomUUID() : t.id
+        existingIds.add(id)
+        return { ...t, id, personId: pid }
+      })
+      dispatch({ type: 'data/replaceAll', data: { ...current!, transactions: [...current!.transactions, ...imported] } })
+      clearSelections(dispatch)
+      return `Imported backup v${decoded.version} into current person.`
+    }
+  }
   if (source.attachments_source_dir) {
     await invoke('restore_attachments_from', { sourceRootDir: source.attachments_source_dir })
   }
@@ -74,4 +109,3 @@ function clearSelections(dispatch: (a: AppAction) => void) {
   dispatch({ type: 'ui/selectGoal', id: null })
   dispatch({ type: 'ui/selectDebt', id: null })
 }
-

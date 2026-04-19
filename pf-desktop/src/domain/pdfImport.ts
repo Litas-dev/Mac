@@ -20,6 +20,8 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
   
   type StatementPeriod = { start: Date; end: Date }
   let period: StatementPeriod | null = null
+  let inferredYear: number | null = null
+  let inferredStatementMonth: number | null = null
 
   function monthIndexFromAbbrev(input: string): number | null {
     const m = input.trim().slice(0, 3).toLowerCase()
@@ -41,21 +43,66 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
   }
 
   function parsePeriodFromText(text: string): StatementPeriod | null {
-    const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/
-    const m = text.match(re)
+    const rangePatterns = [
+      /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/,
+      /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*(?:to|until|through)\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i,
+      /(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(?:to|-)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
+    ]
+    let m: RegExpMatchArray | null = null
+    let slash = false
+    for (const re of rangePatterns) {
+      m = text.match(re)
+      if (m) {
+        slash = re === rangePatterns[2]
+        break
+      }
+    }
     if (!m) return null
     const d1 = Number(m[1])
-    const mo1 = monthIndexFromAbbrev(m[2])
     const y1 = Number(m[3])
     const d2 = Number(m[4])
-    const mo2 = monthIndexFromAbbrev(m[5])
     const y2 = Number(m[6])
+    const mo1 = slash ? Number(m[2]) - 1 : monthIndexFromAbbrev(m[2])
+    const mo2 = slash ? Number(m[5]) - 1 : monthIndexFromAbbrev(m[5])
     if (mo1 == null || mo2 == null) return null
     if (!Number.isFinite(d1) || !Number.isFinite(y1) || !Number.isFinite(d2) || !Number.isFinite(y2)) return null
     const start = new Date(y1, mo1, d1)
     const end = new Date(y2, mo2, d2)
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return null
     return { start, end }
+  }
+
+  function inferYearFromText(text: string): number | null {
+    const slash = text.match(/\b\d{1,2}\/\d{1,2}\/(\d{4})\b/)
+    if (slash) {
+      const y = Number(slash[1])
+      if (Number.isFinite(y)) return y
+    }
+    const monthYear = text.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b/i)
+    if (monthYear) {
+      const y = Number(monthYear[1])
+      if (Number.isFinite(y)) return y
+    }
+    return null
+  }
+
+  function inferStatementAnchorFromText(text: string): { year: number; month: number } | null {
+    const patterns = [
+      /\byour balances on\s+\d{1,2}\s+([A-Za-z]{3,})\s+(\d{4})\b/i,
+      /\bstatement\s+\d{1,2}\s+([A-Za-z]{3,})\s+(\d{4})\b/i,
+      /\b(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})\b/i,
+    ]
+    for (const re of patterns) {
+      const m = text.match(re)
+      if (!m) continue
+      const monthToken = m[m.length - 2]!
+      const yearToken = m[m.length - 1]!
+      const mo = monthIndexFromAbbrev(monthToken)
+      const y = Number(yearToken)
+      if (mo == null || !Number.isFinite(y)) continue
+      return { year: y, month: mo }
+    }
+    return null
   }
 
   function inferIsoDateFromDayMonth(input: string): string | null {
@@ -71,21 +118,29 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       if (!Number.isFinite(d.getTime())) return null
       return d.toISOString().slice(0, 10)
     }
-    if (!period) return null
-    const start = new Date(period.start)
-    const end = new Date(period.end)
-    start.setHours(0, 0, 0, 0)
-    end.setHours(23, 59, 59, 999)
-    const candidates = [period.start.getFullYear(), period.end.getFullYear(), period.start.getFullYear() + 1]
-    for (const y of candidates) {
-      const d = new Date(y, mo, day)
-      if (d.getTime() >= start.getTime() && d.getTime() <= end.getTime()) {
-        return d.toISOString().slice(0, 10)
+
+    if (period) {
+      const start = new Date(period.start)
+      const end = new Date(period.end)
+      start.setHours(0, 0, 0, 0)
+      end.setHours(23, 59, 59, 999)
+      const candidates = [period.start.getFullYear(), period.end.getFullYear(), period.start.getFullYear() + 1]
+      for (const y of candidates) {
+        const d = new Date(y, mo, day)
+        if (d.getTime() >= start.getTime() && d.getTime() <= end.getTime()) {
+          return d.toISOString().slice(0, 10)
+        }
       }
+      const fallback = new Date(period.start.getFullYear(), mo, day)
+      if (Number.isFinite(fallback.getTime())) return fallback.toISOString().slice(0, 10)
     }
-    const fallback = new Date(period.start.getFullYear(), mo, day)
-    if (!Number.isFinite(fallback.getTime())) return null
-    return fallback.toISOString().slice(0, 10)
+
+    if (inferredYear != null && Number.isFinite(inferredYear)) {
+      const y = inferredStatementMonth != null && mo > inferredStatementMonth ? inferredYear - 1 : inferredYear
+      const d = new Date(y, mo, day)
+      if (Number.isFinite(d.getTime())) return d.toISOString().slice(0, 10)
+    }
+    return null
   }
 
   function isLikelyMoney(input: string): boolean {
@@ -216,6 +271,58 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
     if (current.length) groups.push(current)
     for (const g of groups) g.sort((a, b) => a.x - b.x)
     return groups
+  }
+
+  function mergeCharSpacedItems(items: PositionedText[]): PositionedText[] {
+    if (items.length === 0) return items
+    const singleChars = items.filter((it) => it.str.trim().length === 1).length
+    const singleRatio = singleChars / items.length
+    if (singleRatio < 0.55) return items
+
+    const lines = groupByY(items, 2.2)
+    const out: PositionedText[] = []
+
+    for (const line of lines) {
+      let runText = ''
+      let runStartX = 0
+      let runEndX = 0
+      let runY = 0
+      let runH = 0
+
+      const flushRun = () => {
+        const t = runText.trim()
+        if (!t) return
+        out.push({ str: t, x: runStartX, y: runY, h: runH || 0 })
+      }
+
+      for (let i = 0; i < line.length; i++) {
+        const it = line[i]!
+        const token = String(it.str ?? '')
+        const text = token.trim()
+        if (!text) continue
+
+        const prevEndX = runEndX
+        const gap = runText ? it.x - prevEndX : 0
+        const canJoin = runText.length > 0 && gap <= 4.8
+
+        if (!canJoin) {
+          flushRun()
+          runText = text
+          runStartX = it.x
+          runEndX = it.x + Math.max(1, text.length * 3)
+          runY = it.y
+          runH = it.h
+        } else {
+          runText += text
+          runEndX = it.x + Math.max(1, text.length * 3)
+          runY = it.y
+          runH = Math.max(runH, it.h)
+        }
+      }
+      flushRun()
+      runText = ''
+    }
+    return out.length > 0 ? out : items
   }
 
   function findHeaderX(lineItems: PositionedText[], predicate: (norm: string) => boolean): number | null {
@@ -402,13 +509,19 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
   }
 
   function parseInOutTablePage(items: PositionedText[]): string[][] | null {
-    const lines = groupByY(items, 3.5)
+    const prepared0 = mergeCharSpacedItems(items)
+    const hasRightPanelNoise = prepared0.some((it) => {
+      const s = normalizeHeaderToken(it.str)
+      return s.includes('average credit') || s.includes('average debit') || s.includes('receiving an') || s.includes('international payment')
+    })
+    const prepared = hasRightPanelNoise ? prepared0.filter((it) => it.x < 470) : prepared0
+    const lines = groupByY(prepared, 3.5)
     const headerLineIndex = lines.findIndex((line) => {
       const s = normalizeHeaderToken(line.map((x) => x.str).join(' '))
       const hasDate = s.includes('date') || s.includes('data')
       const hasDesc = s.includes('description') || s.includes('transaction') || s.includes('aprasymas')
-      const hasOut = s.includes('money out') || s.includes('paid out') || (s.includes('out') && s.includes('money'))
-      const hasIn = s.includes('money in') || s.includes('paid in') || (s.includes('in') && s.includes('money'))
+      const hasOut = s.includes('money out') || s.includes('paid out') || /\bout\b/.test(s)
+      const hasIn = s.includes('money in') || s.includes('paid in') || /\bin\b/.test(s)
       const hasBal = s.includes('balance') || s.includes('likutis') || s.includes('balansas')
       return hasDate && hasDesc && hasOut && hasIn && hasBal
     })
@@ -418,8 +531,8 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
     const xDate = findHeaderX(headerLine, (s) => s === 'date' || s === 'data')
     const xDesc = findHeaderX(headerLine, (s) => s === 'transaction' || s === 'description' || s === 'aprasymas' || s.includes('description'))
     const xType = findHeaderX(headerLine, (s) => s === 'type')
-    const xOut = findHeaderX(headerLine, (s) => s.includes('money out') || s.includes('paid out') || s === 'out')
-    const xIn = findHeaderX(headerLine, (s) => s.includes('money in') || s.includes('paid in') || s === 'in')
+    const xOut = findHeaderX(headerLine, (s) => s.includes('money out') || s.includes('paid out') || s === 'out' || /\bout\b/.test(s))
+    const xIn = findHeaderX(headerLine, (s) => s.includes('money in') || s.includes('paid in') || s === 'in' || /\bin\b/.test(s))
     const xBal = findHeaderX(headerLine, (s) => s.includes('balance') || s.includes('likutis') || s.includes('balansas'))
     if (xDate == null || xDesc == null || xOut == null || xIn == null || xBal == null) return null
 
@@ -433,6 +546,12 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
     ].sort((a, b) => a.x - b.x)
     const boundaries: number[] = []
     for (let i = 0; i < cols.length - 1; i++) boundaries.push((cols[i]!.x + cols[i + 1]!.x) / 2)
+
+    const outIdx = cols.findIndex((c) => c.key === 'out')
+    const inIdx = cols.findIndex((c) => c.key === 'in')
+    if (outIdx >= 0 && inIdx === outIdx + 1) {
+      boundaries[outIdx] = cols[inIdx]!.x - 8
+    }
 
     const assignCol = (x: number) => {
       for (let i = 0; i < boundaries.length; i++) {
@@ -502,13 +621,16 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       for (const k of Object.keys(by)) by[k]!.sort((a, b) => a.x - b.x)
 
       const dateRaw = cleanCell(by.date.map((x) => x.str).join(' '))
-      const dateIso = dateRaw ? asIsoDate(dateRaw) : null
+      const dateCandidate = dateRaw.replace(/^(\d{1,2})([A-Za-z]{3,})$/, '$1 $2')
+      const looksLikeDate = /(\d{1,2}\s*[A-Za-z]{3,}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}[-/]\d{2}[-/]\d{2})/.test(dateCandidate)
+      const dateIso = looksLikeDate ? asIsoDate(dateCandidate) : null
       if (dateIso) carryDateIso = dateIso
 
       const descLine = cleanCell(by.desc.map((x) => x.str).join(' '))
       const typeLine = cleanCell(by.type.map((x) => x.str).join(' '))
       const normDesc = normalizeHeaderToken(descLine)
       if (normDesc.includes('balance brought forward')) continue
+      if (normDesc.includes('balance from statement')) continue
       if (isHeaderRow(dateRaw, descLine, typeLine, by.out.map((x) => x.str).join(' '), by.in.map((x) => x.str).join(' '))) continue
 
       const outRaw = cleanCell(by.out.map((x) => x.str).join(''))
@@ -1043,10 +1165,21 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       if (tryParser(monzo)) continue
     }
 
+    const pageText = items.map((it) => it.str).join(' ')
     if (!period) {
-      const pageText = items.map((it) => it.str).join(' ')
       const found = parsePeriodFromText(pageText)
       if (found) period = found
+    }
+    if (!inferredYear) {
+      const y = inferYearFromText(pageText)
+      if (y) inferredYear = y
+    }
+    if (inferredStatementMonth == null) {
+      const anchor = inferStatementAnchorFromText(pageText)
+      if (anchor) {
+        inferredYear = inferredYear ?? anchor.year
+        inferredStatementMonth = anchor.month
+      }
     }
 
     // Group items by Y coordinate (rounded to nearest 4 pixels to account for slight misalignment)

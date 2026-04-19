@@ -3,6 +3,8 @@ use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use serde_json::Value;
+use base64::Engine;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -52,6 +54,8 @@ pub fn run() {
       read_data_file,
       write_data_file,
       preserve_corrupt_file,
+      migrate_legacy_appsupport_data,
+      read_attachment_file,
       attachments_root_dir,
       save_bill_attachment,
       save_invoice_attachment,
@@ -67,6 +71,157 @@ pub fn run() {
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+#[derive(serde::Serialize)]
+struct ReadAttachmentResult {
+  base64: String,
+  mime: String,
+}
+
+#[tauri::command]
+fn read_attachment_file(app: tauri::AppHandle, stored_relative_path: String) -> Result<ReadAttachmentResult, String> {
+  if stored_relative_path.contains("..") {
+    return Err("invalid stored_relative_path".to_string());
+  }
+  let root = attachments_root(&app)?;
+  let path = root.join(&stored_relative_path);
+  if !path.exists() {
+    return Err("file not found".to_string());
+  }
+  let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+  let ext = path
+    .extension()
+    .and_then(|s| s.to_str())
+    .unwrap_or("")
+    .to_lowercase();
+  let mime = match ext.as_str() {
+    "png" => "image/png",
+    "jpg" | "jpeg" => "image/jpeg",
+    "webp" => "image/webp",
+    "gif" => "image/gif",
+    "heic" => "image/heic",
+    "heif" => "image/heif",
+    "pdf" => "application/pdf",
+    _ => "application/octet-stream",
+  }
+  .to_string();
+  let base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+  Ok(ReadAttachmentResult { base64, mime })
+}
+
+#[tauri::command]
+fn migrate_legacy_appsupport_data(app: tauri::AppHandle) -> Result<String, String> {
+  let home = app.path().home_dir().map_err(|e| e.to_string())?;
+  let legacy_root = home
+    .join("Library")
+    .join("Application Support")
+    .join("Kivana");
+  if !legacy_root.exists() {
+    return Ok("No legacy data found.".to_string());
+  }
+
+  let new_root = data_root(&app)?;
+  std::fs::create_dir_all(&new_root).map_err(|e| e.to_string())?;
+
+  let settings_path = new_root.join("settings.json");
+  let mut people_enabled = false;
+  let mut active_person_id = "person-1".to_string();
+  if settings_path.exists() {
+    if let Ok(raw) = std::fs::read_to_string(&settings_path) {
+      if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+        people_enabled = v.get("peopleEnabled").and_then(|x| x.as_bool()).unwrap_or(false);
+        active_person_id = v
+          .get("activePersonId")
+          .and_then(|x| x.as_str())
+          .unwrap_or("person-1")
+          .to_string();
+      }
+    }
+  }
+
+  let files = vec![
+    "bills.json",
+    "incomes.json",
+    "accounts.json",
+    "transactions.json",
+    "invoices.json",
+    "goals.json",
+    "debts.json",
+  ];
+  let mut migrated: Vec<String> = Vec::new();
+
+  fn json_is_effectively_empty(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() || t == "[]" || t == "{}" {
+      return true;
+    }
+    let v = serde_json::from_str::<Value>(t);
+    if v.is_err() {
+      return false;
+    }
+    let v = v.unwrap();
+    if let Some(arr) = v.as_array() {
+      return arr.is_empty();
+    }
+    if let Some(obj) = v.as_object() {
+      if obj.is_empty() {
+        return true;
+      }
+      if let Some(by_person) = obj.get("byPerson").and_then(|x| x.as_object()) {
+        for (_, vv) in by_person {
+          if let Some(a) = vv.as_array() {
+            if !a.is_empty() {
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+    }
+    false
+  }
+
+  for name in files {
+    let src = legacy_root.join(name);
+    if !src.exists() {
+      continue;
+    }
+    let dst = new_root.join(name);
+    if dst.exists() {
+      if let Ok(dst_text) = std::fs::read_to_string(&dst) {
+        if !json_is_effectively_empty(&dst_text) {
+          continue;
+        }
+      }
+    }
+    let src_text = std::fs::read_to_string(&src).map_err(|e| e.to_string())?;
+    if src_text.trim().len() <= 10 {
+      continue;
+    }
+
+    let out = if name == "transactions.json" && people_enabled {
+      if let Ok(arr) = serde_json::from_str::<Value>(&src_text) {
+        if arr.is_array() {
+          serde_json::json!({ "version": 2, "byPerson": { active_person_id.clone(): arr } }).to_string()
+        } else {
+          src_text.clone()
+        }
+      } else {
+        src_text.clone()
+      }
+    } else {
+      src_text.clone()
+    };
+
+    std::fs::write(&dst, out.as_bytes()).map_err(|e| e.to_string())?;
+    migrated.push(name.to_string());
+  }
+
+  if migrated.is_empty() {
+    return Ok("Legacy data found, but nothing needed migration.".to_string());
+  }
+  Ok(format!("Migrated: {}", migrated.join(", ")))
 }
 
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -439,6 +594,15 @@ fn reset_all_data(app: tauri::AppHandle) -> Result<(), String> {
     std::fs::remove_dir_all(&root).map_err(|e| e.to_string())?;
   }
   std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+  if let Ok(home) = app.path().home_dir() {
+    let legacy_root = home
+      .join("Library")
+      .join("Application Support")
+      .join("Kivana");
+    if legacy_root.exists() {
+      let _ = std::fs::remove_dir_all(&legacy_root);
+    }
+  }
   Ok(())
 }
 

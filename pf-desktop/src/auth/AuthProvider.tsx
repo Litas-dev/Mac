@@ -3,6 +3,7 @@ import { getMe, refreshToken as refreshTokenCall, signIn as signInCall, signOut 
 import { loadAuthSession, saveAuthSession, type AuthSession } from './authStore'
 import { getEntitlements, type EntitlementsResponse } from '../licensing/entitlementsApi'
 import { loadEntitlements, saveEntitlements } from '../licensing/entitlementsStore'
+import { saveLastLoginEmail } from '../storage/userPrefs'
 
 export interface AuthContextValue {
   ready: boolean
@@ -221,6 +222,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       }
       setSession(next)
       await saveAuthSession(next)
+      saveLastLoginEmail(r.user.email || email)
       setOpenLogin(false)
       try {
         const e = await getEntitlements(base, next.accessToken)
@@ -246,6 +248,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       }
       setSession(next)
       await saveAuthSession(next)
+      saveLastLoginEmail(r.user.email || email)
       setOpenLogin(false)
       try {
         const e = await getEntitlements(base, next.accessToken)

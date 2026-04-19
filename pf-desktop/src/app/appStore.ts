@@ -43,6 +43,7 @@ export type AppAction =
   | { type: 'ui/selectGoal'; id: UUID | null }
   | { type: 'ui/selectDebt'; id: UUID | null }
   | { type: 'data/replaceAll'; data: LoadedDatasets }
+  | { type: 'settings/update'; patch: Partial<LoadedDatasets['settings']> }
   | { type: 'bills/add'; bill: Bill }
   | { type: 'bills/update'; bill: Bill }
   | { type: 'bills/delete'; id: UUID }
@@ -62,6 +63,7 @@ export type AppAction =
   | { type: 'transactions/add'; transaction: Transaction }
   | { type: 'transactions/update'; transaction: Transaction }
   | { type: 'transactions/bulkUpdate'; transactions: Transaction[] }
+  | { type: 'transactions/replaceLoaded'; transactions: Transaction[] }
   | { type: 'transactions/delete'; id: UUID }
   | { type: 'transactions/clearAll' }
   | { type: 'invoices/add'; invoice: Invoice }
