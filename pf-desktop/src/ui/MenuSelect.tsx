@@ -11,7 +11,7 @@ export function MenuSelect<T extends string>(props: {
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; direction: 'down' | 'up'; maxHeight: number } | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
@@ -65,7 +65,16 @@ export function MenuSelect<T extends string>(props: {
     const el = buttonRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setPos({ left: r.left, top: r.bottom + 6, width: props.width ?? Math.max(220, Math.round(r.width)) })
+    const width = props.width ?? Math.max(220, Math.round(r.width))
+    const margin = 10
+    const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))
+    const belowTop = r.bottom + 6
+    const aboveTop = r.top - 6
+    const availableBelow = window.innerHeight - belowTop - margin
+    const availableAbove = aboveTop - margin
+    const direction: 'down' | 'up' = availableBelow >= 220 || availableBelow >= availableAbove ? 'down' : 'up'
+    const maxHeight = Math.max(160, Math.min(520, direction === 'down' ? availableBelow : availableAbove))
+    setPos({ left, top: direction === 'down' ? belowTop : aboveTop, width, direction, maxHeight })
     setOpen(true)
   }
 
@@ -77,7 +86,17 @@ export function MenuSelect<T extends string>(props: {
         <span className="menuChevron">▾</span>
       </button>
       {open && pos ? (
-        <div className="menuPanel" style={{ left: pos.left, top: pos.top, width: pos.width }} ref={panelRef}>
+        <div
+          className="menuPanel"
+          style={{
+            left: pos.left,
+            top: pos.top,
+            width: pos.width,
+            maxHeight: pos.maxHeight,
+            transform: pos.direction === 'up' ? 'translateY(-100%)' : undefined,
+          }}
+          ref={panelRef}
+        >
           {props.options.map((o) => (
             <button
               key={o.value}

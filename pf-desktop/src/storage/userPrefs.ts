@@ -1,5 +1,6 @@
 const DISPLAY_CURRENCY_KEY = 'Kivana/prefs/displayCurrencyCode'
 const LAST_LOGIN_EMAIL_KEY = 'Kivana/prefs/lastLoginEmail'
+const SIDEBAR_COLLAPSED_GROUPS_KEY = 'Kivana/prefs/sidebarCollapsedGroups'
 
 export function loadPreferredDisplayCurrencyCode(): string | null {
   try {
@@ -37,9 +38,30 @@ export function saveLastLoginEmail(email: string | null | undefined): void {
   }
 }
 
+export function loadSidebarCollapsedGroups(): string[] {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_COLLAPSED_GROUPS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((x) => String(x ?? '').trim()).filter((x) => x.length > 0)
+  } catch {
+    return []
+  }
+}
+
+export function saveSidebarCollapsedGroups(groups: string[] | null | undefined): void {
+  try {
+    const list = Array.isArray(groups) ? groups.map((x) => String(x ?? '').trim()).filter((x) => x.length > 0) : []
+    localStorage.setItem(SIDEBAR_COLLAPSED_GROUPS_KEY, JSON.stringify(list))
+  } catch {
+  }
+}
+
 export function preservePrefsAcrossLocalStorageClear(): void {
   const currency = loadPreferredDisplayCurrencyCode()
   const email = loadLastLoginEmail()
+  const sidebarGroups = loadSidebarCollapsedGroups()
   try {
     localStorage.clear()
   } catch {
@@ -47,4 +69,5 @@ export function preservePrefsAcrossLocalStorageClear(): void {
   }
   if (currency) savePreferredDisplayCurrencyCode(currency)
   if (email) saveLastLoginEmail(email)
+  if (sidebarGroups.length > 0) saveSidebarCollapsedGroups(sidebarGroups)
 }

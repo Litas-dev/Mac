@@ -56,6 +56,10 @@ export function buildSidebar(state: AppState, advanced: boolean): SidebarGroup[]
     billsItems.push({ section: 'deferred', title: 'Deferred', subtitle: deferredSubtitle(state, now), icon: 'deferred' })
   }
 
+  if (advanced) {
+    billsItems.push({ section: 'goals', title: 'Goals', subtitle: goalsSubtitle(state), icon: 'goals' })
+  }
+
   const billsGroup: SidebarGroup = { title: 'Bills', items: billsItems }
 
   const coreGroup: SidebarGroup | null = advanced
@@ -65,7 +69,6 @@ export function buildSidebar(state: AppState, advanced: boolean): SidebarGroup[]
           { section: 'accounts', title: 'Accounts', subtitle: accountsSubtitle(state), icon: 'accounts' },
           { section: 'transactions', title: 'Transactions', subtitle: transactionsSubtitle(state, now), icon: 'transactions' },
           { section: 'invoices', title: 'Files', subtitle: filesSubtitle(state), icon: 'invoices' },
-          { section: 'goals', title: 'Goals', subtitle: goalsSubtitle(state), icon: 'goals' },
           { section: 'debts', title: 'Debts', subtitle: debtsSubtitle(state), icon: 'debts' },
         ],
       }

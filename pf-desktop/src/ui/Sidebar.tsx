@@ -9,13 +9,15 @@ import { nextPersonName, normalizePeopleSettings } from '../domain/people'
 import { isTauriRuntime, deletePersonTransactionsFromTauriFiles } from '../storage/tauriJsonStore'
 import { deletePersonTransactionsFromLocalStorage } from '../storage/localJsonStore'
 import { currency } from '../domain/finance'
+import { loadSidebarCollapsedGroups, saveSidebarCollapsedGroups } from '../storage/userPrefs'
 
-export function Sidebar() {
+export function Sidebar(props: { onHoverChange?: (expanded: boolean) => void }) {
   const { state, dispatch } = useAppStore()
   const auth = useAuth()
   const advanced = useMemo(() => isAdvancedAccount(auth.entitlements), [auth.entitlements])
   const groups = useMemo(() => buildSidebar(state, advanced), [advanced, state])
   const settings = useMemo(() => normalizePeopleSettings(state.settings), [state.settings])
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set(loadSidebarCollapsedGroups()))
   const [peopleModalOpen, setPeopleModalOpen] = useState(false)
   const [peopleModalMode, setPeopleModalMode] = useState<'add' | 'rename'>('add')
   const [peopleModalPersonId, setPeopleModalPersonId] = useState<string>('')
@@ -111,15 +113,42 @@ export function Sidebar() {
     setPeopleModalOpen(false)
   }, [dispatch, peopleModalMode, peopleModalPersonId, settings.activePersonId, settings.people, settings.peopleTransactionCounts])
 
+  const toggleGroup = useCallback((title: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      saveSidebarCollapsedGroups(Array.from(next.values()))
+      return next
+    })
+  }, [])
+
   return (
-    <aside className="sidebar" data-tauri-drag-region>
+    <aside
+      className="sidebar"
+      data-tauri-drag-region
+      onMouseEnter={() => props.onHoverChange?.(true)}
+      onMouseLeave={() => props.onHoverChange?.(false)}
+    >
       <div className="sidebarDragGutter" data-tauri-drag-region />
-      <div className="brand" data-tauri-drag-region>Kivana</div>
+      <div className="brand" data-tauri-drag-region>
+        <img className="brandMark" src="/kivana-logo.png" alt="Kivana logo" data-tauri-drag-region />
+        <div className="brandName" data-tauri-drag-region>
+          Kivana
+        </div>
+      </div>
       <nav className="sbNav">
-        {groups.map((g) => (
+        {groups.map((g) => {
+          const isCollapsed = collapsedGroups.has(g.title)
+          return (
           <div key={g.title} className="sbGroup">
-            <div className="sbGroupTitle" data-tauri-drag-region>{g.title}</div>
-            {g.items.map((item) => {
+            <div className="sbGroupTitleRow">
+              <button type="button" className="sbGroupTitleBtn" onClick={() => toggleGroup(g.title)} title={isCollapsed ? 'Show' : 'Hide'}>
+                <span className="sbGroupTitleText">{g.title}</span>
+                <span className="sbGroupTitleCaret">{isCollapsed ? '▸' : '▾'}</span>
+              </button>
+            </div>
+            {isCollapsed ? null : g.items.map((item) => {
               const active = state.ui.section === item.section
               return (
                 <button
@@ -127,6 +156,7 @@ export function Sidebar() {
                   type="button"
                   className={active ? 'sbItem active' : 'sbItem'}
                   onClick={() => dispatch(setSection(item.section))}
+                  title={item.subtitle ? `${item.title} • ${item.subtitle}` : item.title}
                 >
                   <SidebarIconView icon={item.icon} dueSeverity={item.dueSeverity} />
                   <span className="sbText">
@@ -137,11 +167,22 @@ export function Sidebar() {
               )
             })}
           </div>
-        ))}
+          )
+        })}
         {advanced && settings.peopleEnabled ? (
           <div className="sbGroup">
-            <div className="sbGroupTitle" data-tauri-drag-region>People</div>
-            {settings.people.map((p) => {
+            <div className="sbGroupTitleRow">
+              <button
+                type="button"
+                className="sbGroupTitleBtn"
+                onClick={() => toggleGroup('People')}
+                title={collapsedGroups.has('People') ? 'Show' : 'Hide'}
+              >
+                <span className="sbGroupTitleText">People</span>
+                <span className="sbGroupTitleCaret">{collapsedGroups.has('People') ? '▸' : '▾'}</span>
+              </button>
+            </div>
+            {collapsedGroups.has('People') ? null : settings.people.map((p) => {
               const active = settings.activePersonId === p.id
               const count = Number(settings.peopleTransactionCounts?.[p.id] ?? (active ? state.transactions.length : 0))
               return (
@@ -151,6 +192,7 @@ export function Sidebar() {
                     className={active ? 'sbItem active' : 'sbItem'}
                     style={{ flex: 1 }}
                     onClick={() => setActivePersonId(p.id)}
+                    title={p.name}
                   >
                     <SidebarIconView icon="transactions" />
                     <span className="sbText">
@@ -164,13 +206,15 @@ export function Sidebar() {
                 </div>
               )
             })}
-            <button type="button" className="sbItem" onClick={openAddPerson}>
-              <SidebarIconView icon="transactions" />
-              <span className="sbText">
-                <span className="sbTitle">Add person</span>
-                <span className="sbSubtitle">Separate transactions</span>
-              </span>
-            </button>
+            {collapsedGroups.has('People') ? null : (
+              <button type="button" className="sbItem" onClick={openAddPerson} title="Add person">
+                <SidebarIconView icon="transactions" />
+                <span className="sbText">
+                  <span className="sbTitle">Add person</span>
+                  <span className="sbSubtitle">Separate transactions</span>
+                </span>
+              </button>
+            )}
           </div>
         ) : null}
       </nav>

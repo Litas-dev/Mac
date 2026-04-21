@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from './app/appStore'
 import { SectionRouter } from './ui/SectionRouter'
 import { OnboardingModal } from './ui/OnboardingModal'
@@ -19,6 +19,7 @@ function App() {
   const { state, dispatch } = store
   const auth = useAuth()
   const advanced = isAdvancedAccount(auth.entitlements)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const stateRef = useRef(store.state)
   stateRef.current = store.state
   const accountLabel = auth.session ? displayNameForEmail(auth.session.userEmail) : ''
@@ -42,11 +43,11 @@ function App() {
   }, [dispatch])
 
   return (
-    <div className="shell">
+    <div className={sidebarExpanded ? 'shell shellSidebarExpanded' : 'shell shellSidebarCollapsed'}>
       <OnboardingModal />
       <LoginModal />
       <UpdateWatcher />
-      <Sidebar />
+      <Sidebar onHoverChange={setSidebarExpanded} />
 
       <main className="main">
         <header className="topbar">
