@@ -94,6 +94,13 @@ Have an idea? Found something missing? I actively review and prioritize requests
 
 I read every request. Highest-voted issues get prioritized.
 
+## License
+
+This project is source-available for evaluation. 
+Commercial use requires a license. [Contact me](mailto:kojankus@gmail.com) for inquiries.
+
+See [LICENSE](./LICENSE) for details.
+
 ## Build & Run (Developer)
 
 The desktop app lives in `pf-desktop/`.
