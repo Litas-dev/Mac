@@ -111,10 +111,6 @@ cd pf-desktop
 npm run tauri:build
 ```
 
-## License
-
-This project is not open source. No license is granted for copying, modifying, or redistributing without explicit permission from the author.
-
 ## Data Storage
 
 - Data is stored locally on disk (JSON under the app data directory).
