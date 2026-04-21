@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
-import type { AIProvider, AppSettings } from '../../domain/settings'
+import type { AIProvider, AppSettings, ImportCategoryRule } from '../../domain/settings'
+import type { BillCategory } from '../../domain/models'
 import { exportBackup, importBackupFromFolder, importBackupFromJson } from '../dataActions'
 import { buildBillsIcs } from '../../domain/calendarIcs'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
@@ -8,12 +9,13 @@ import { getMe } from '../../auth/authApi'
 import { useAuth } from '../../auth/AuthProvider'
 import { preservePrefsAcrossLocalStorageClear, savePreferredDisplayCurrencyCode } from '../../storage/userPrefs'
 import { isAdvancedAccount } from '../../licensing/licenseGates'
+import { MenuSelect } from '../MenuSelect'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
   const auth = useAuth()
   const advanced = useMemo(() => isAdvancedAccount(auth.entitlements), [auth.entitlements])
-  const [tab, setTab] = useState<'general' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'account' | 'data' | 'updates'>(
+  const [tab, setTab] = useState<'general' | 'categories' | 'notifications' | 'calendar' | 'forecast' | 'ai' | 'account' | 'data' | 'updates'>(
     'general',
   )
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
@@ -31,6 +33,97 @@ export function SettingsView() {
   const [entitlementsStatus, setEntitlementsStatus] = useState<string>('')
 
   const settings = state.settings
+  const builtinCategories: BillCategory[] = ['housing', 'utilities', 'subscriptions', 'insurance', 'taxes', 'transport', 'other']
+  const ruleFields: Array<ImportCategoryRule['field']> = ['any', 'payee', 'notes']
+  const ruleKinds: Array<ImportCategoryRule['appliesTo']> = ['any', 'expense', 'income', 'transfer']
+  const [newRuleMatch, setNewRuleMatch] = useState('')
+  const [newRuleField, setNewRuleField] = useState<ImportCategoryRule['field']>('payee')
+  const [newRuleAppliesTo, setNewRuleAppliesTo] = useState<ImportCategoryRule['appliesTo']>('expense')
+  const [newRuleTarget, setNewRuleTarget] = useState<string>('custom:Food')
+  const [newRuleCustomName, setNewRuleCustomName] = useState<string>('')
+  const [editRuleId, setEditRuleId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<ImportCategoryRule | null>(null)
+
+  const customExpenseCategoryNames = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of state.transactions) {
+      if (t.kind !== 'expense') continue
+      const v = (t.customCategoryName ?? '').trim()
+      if (v) set.add(v)
+    }
+    for (const b of state.bills) {
+      const v = (b.customCategoryName ?? '').trim()
+      if (v) set.add(v)
+    }
+    for (const x of settings.customBillCategories ?? []) {
+      const v = String(x ?? '').trim()
+      if (v) set.add(v)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [settings.customBillCategories, state.bills, state.transactions])
+
+  const payeeSuggestions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const t of state.transactions) {
+      const p = String(t.payee ?? '').trim()
+      if (!p) continue
+      counts.set(p, (counts.get(p) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([payee, count]) => ({ payee, count }))
+      .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.payee.localeCompare(b.payee)))
+      .slice(0, 40)
+  }, [state.transactions])
+
+  function ruleTargetOptions(): Array<{ value: string; label: string }> {
+    const custom = customExpenseCategoryNames.map((c) => ({ value: `custom:${c}`, label: `Custom: ${c}` }))
+    const builtin = builtinCategories.map((c) => ({ value: `cat:${c}`, label: `Category: ${c}` }))
+    const common = [
+      { value: 'custom:__new__', label: 'Custom: + New…' },
+      { value: 'custom:Food', label: 'Custom: Food' },
+      { value: 'custom:Groceries', label: 'Custom: Groceries' },
+      { value: 'custom:Fuel', label: 'Custom: Fuel' },
+      { value: 'custom:Rent', label: 'Custom: Rent' },
+    ]
+    const out = [...common, ...custom, ...builtin]
+    const uniq = new Map<string, string>()
+    for (const o of out) if (!uniq.has(o.value)) uniq.set(o.value, o.label)
+    return [...uniq.entries()].map(([value, label]) => ({ value, label }))
+  }
+
+  function parseTarget(value: string): { category: BillCategory; customCategoryName: string | null } {
+    const raw = String(value ?? '')
+    if (raw.startsWith('custom:')) {
+      const name = raw.slice('custom:'.length).trim()
+      return { category: 'other', customCategoryName: name || null }
+    }
+    if (raw.startsWith('cat:')) {
+      const cat = raw.slice('cat:'.length).trim() as BillCategory
+      return { category: cat || 'other', customCategoryName: null }
+    }
+    return { category: 'other', customCategoryName: null }
+  }
+
+  function updateImportRules(next: ImportCategoryRule[]) {
+    updateSettings({ importCategoryRules: next })
+  }
+
+  function startEditRule(id: string) {
+    const r = (settings.importCategoryRules ?? []).find((x) => x.id === id) ?? null
+    setEditRuleId(id)
+    setEditDraft(r ? { ...r } : null)
+  }
+
+  function saveEditRule() {
+    if (!editRuleId || !editDraft) {
+      setEditRuleId(null)
+      setEditDraft(null)
+      return
+    }
+    updateImportRules((settings.importCategoryRules ?? []).map((x) => (x.id === editRuleId ? editDraft : x)))
+    setEditRuleId(null)
+    setEditDraft(null)
+  }
 
   useEffect(() => {
     if (!isTauriRuntime()) return
@@ -336,6 +429,9 @@ export function SettingsView() {
             <button type="button" className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>
               General
             </button>
+            <button type="button" className={tab === 'categories' ? 'active' : ''} onClick={() => setTab('categories')}>
+              Categories
+            </button>
             <button type="button" className={tab === 'notifications' ? 'active' : ''} onClick={() => setTab('notifications')}>
               Notifications
             </button>
@@ -409,6 +505,215 @@ export function SettingsView() {
             </div>
           ) : null}
         </div>
+        ) : null}
+
+        {tab === 'categories' && editRuleId && editDraft ? (
+          <div className="modalBackdrop" onMouseDown={(e) => e.target === e.currentTarget && (setEditRuleId(null), setEditDraft(null))}>
+            <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+              <div className="modalTitle">Edit rule</div>
+              <div className="fieldRow" style={{ marginTop: 12 }}>
+                <label className="field" style={{ flex: 1 }}>
+                  <div className="fieldLabel">Match text</div>
+                  <input value={editDraft.match} onChange={(e) => setEditDraft({ ...editDraft, match: e.target.value })} />
+                </label>
+                <label className="field">
+                  <div className="fieldLabel">Where</div>
+                  <MenuSelect
+                    value={(editDraft.field ?? 'any') as any}
+                    options={ruleFields.map((f) => ({ value: f as any, label: f }))}
+                    onChange={(v: any) => setEditDraft({ ...editDraft, field: String(v) as any })}
+                    width={160}
+                  />
+                </label>
+                <label className="field">
+                  <div className="fieldLabel">Applies to</div>
+                  <MenuSelect
+                    value={(editDraft.appliesTo ?? 'expense') as any}
+                    options={ruleKinds.map((k) => ({ value: k as any, label: k }))}
+                    onChange={(v: any) => setEditDraft({ ...editDraft, appliesTo: String(v) as any })}
+                    width={160}
+                  />
+                </label>
+              </div>
+
+              <div className="fieldRow" style={{ marginTop: 10 }}>
+                <label className="field">
+                  <div className="fieldLabel">Base category</div>
+                  <MenuSelect
+                    value={(editDraft.category ?? 'other') as any}
+                    options={builtinCategories.map((c) => ({ value: c as any, label: c }))}
+                    onChange={(v: any) => setEditDraft({ ...editDraft, category: String(v) as any, customCategoryName: null })}
+                    width={220}
+                  />
+                </label>
+                <label className="field" style={{ flex: 1 }}>
+                  <div className="fieldLabel">Custom category name (optional)</div>
+                  <input
+                    value={editDraft.customCategoryName ?? ''}
+                    onChange={(e) => setEditDraft({ ...editDraft, category: 'other', customCategoryName: e.target.value || null })}
+                    placeholder="Example: Food"
+                  />
+                </label>
+              </div>
+
+              <div className="modalActions">
+                <button type="button" onClick={() => { setEditRuleId(null); setEditDraft(null) }}>
+                  Cancel
+                </button>
+                <button type="button" className="btnPrimary" onClick={saveEditRule}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'categories' ? (
+          <div className="settingsGroup">
+            <div className="settingsGroupHeader">
+              <div className="settingsGroupTitle">Auto-categorization (import)</div>
+            </div>
+
+            <div className="note" style={{ marginTop: 0 }}>
+              Add rules so imported transactions get categorized automatically. First matching rule wins. Rules apply only when a transaction is uncategorized.
+            </div>
+
+            <div className="groupBox" style={{ marginTop: 12 }}>
+              <div className="groupTitle">Quick add</div>
+              <div className="fieldRow" style={{ marginTop: 10 }}>
+                <label className="field" style={{ flex: 1 }}>
+                  <div className="fieldLabel">Match text</div>
+                  <input value={newRuleMatch} onChange={(e) => setNewRuleMatch(e.target.value)} placeholder="Example: tesco / uber / salary" />
+                </label>
+                <label className="field">
+                  <div className="fieldLabel">Pick payee</div>
+                  <MenuSelect
+                    value={'' as any}
+                    options={[{ value: '' as any, label: 'Choose…' }, ...payeeSuggestions.map((p) => ({ value: p.payee as any, label: p.payee }))]}
+                    onChange={(v: any) => {
+                      const p = String(v ?? '').trim()
+                      if (p) setNewRuleMatch(p)
+                    }}
+                    width={240}
+                  />
+                </label>
+              </div>
+
+              <div className="fieldRow" style={{ marginTop: 10 }}>
+                <label className="field">
+                  <div className="fieldLabel">Where</div>
+                  <MenuSelect
+                    value={newRuleField as any}
+                    options={ruleFields.map((f) => ({ value: f as any, label: f }))}
+                    onChange={(v: any) => setNewRuleField(String(v) as any)}
+                    width={140}
+                  />
+                </label>
+                <label className="field">
+                  <div className="fieldLabel">Applies to</div>
+                  <MenuSelect
+                    value={newRuleAppliesTo as any}
+                    options={ruleKinds.map((k) => ({ value: k as any, label: k }))}
+                    onChange={(v: any) => setNewRuleAppliesTo(String(v) as any)}
+                    width={160}
+                  />
+                </label>
+                <label className="field" style={{ flex: 1 }}>
+                  <div className="fieldLabel">Category</div>
+                  <MenuSelect
+                    value={newRuleTarget as any}
+                    options={ruleTargetOptions().map((o) => ({ value: o.value as any, label: o.label }))}
+                    onChange={(v: any) => {
+                      const raw = String(v ?? '')
+                      if (raw === 'custom:__new__') {
+                        const name = (window.prompt('New custom category name:') ?? '').trim()
+                        if (!name) return
+                        setNewRuleTarget(`custom:${name}`)
+                        setNewRuleCustomName(name)
+                        return
+                      }
+                      setNewRuleTarget(raw)
+                      if (raw.startsWith('custom:')) setNewRuleCustomName(raw.slice('custom:'.length))
+                      else setNewRuleCustomName('')
+                    }}
+                    width={320}
+                  />
+                </label>
+                <label className="field" style={{ flex: 1 }}>
+                  <div className="fieldLabel">Custom name</div>
+                  <input
+                    value={newRuleCustomName}
+                    onChange={(e) => setNewRuleCustomName(e.target.value)}
+                    placeholder="Optional (example: Food)"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btnPrimary"
+                  onClick={() => {
+                    const match = newRuleMatch.trim()
+                    if (!match) return
+                    const t = newRuleCustomName.trim() ? { category: 'other' as BillCategory, customCategoryName: newRuleCustomName.trim() } : parseTarget(newRuleTarget)
+                    const rule: ImportCategoryRule = {
+                      id: crypto.randomUUID(),
+                      match,
+                      field: newRuleField,
+                      appliesTo: newRuleAppliesTo,
+                      category: t.category,
+                      customCategoryName: t.customCategoryName,
+                    }
+                    updateImportRules([...(settings.importCategoryRules ?? []), rule])
+                    setNewRuleMatch('')
+                    setNewRuleCustomName('')
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div className="list" style={{ marginTop: 12 }}>
+              {(settings.importCategoryRules ?? []).length === 0 ? (
+                <div className="empty">No rules yet. Use “Quick add”.</div>
+              ) : (
+                (settings.importCategoryRules ?? []).map((r, idx) => {
+                  const targetLabel = String(r.customCategoryName ?? '').trim()
+                    ? `Custom: ${String(r.customCategoryName ?? '').trim()}`
+                    : `Category: ${r.category ?? 'other'}`
+                  return (
+                    <div key={r.id} className="listItem ruleRow">
+                      <div className="ruleRowMain">
+                        <div className="ruleRowTitle">
+                          {r.match} → {targetLabel}
+                        </div>
+                        <div className="ruleRowMeta">
+                          Where: {r.field ?? 'any'} • Applies: {r.appliesTo ?? 'expense'}
+                        </div>
+                      </div>
+                      <div className="ruleRowActions">
+                        <button type="button" disabled={idx === 0} onClick={() => {
+                          const list = [...(settings.importCategoryRules ?? [])]
+                          const tmp = list[idx - 1]!
+                          list[idx - 1] = list[idx]!
+                          list[idx] = tmp
+                          updateImportRules(list)
+                        }}>Up</button>
+                        <button type="button" disabled={idx >= (settings.importCategoryRules ?? []).length - 1} onClick={() => {
+                          const list = [...(settings.importCategoryRules ?? [])]
+                          const tmp = list[idx + 1]!
+                          list[idx + 1] = list[idx]!
+                          list[idx] = tmp
+                          updateImportRules(list)
+                        }}>Down</button>
+                        <button type="button" onClick={() => startEditRule(r.id)}>Edit</button>
+                        <button type="button" className="btnDanger" onClick={() => updateImportRules((settings.importCategoryRules ?? []).filter((x) => x.id !== r.id))}>Delete</button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
         ) : null}
 
         {tab === 'notifications' ? (

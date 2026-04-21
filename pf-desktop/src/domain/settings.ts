@@ -50,7 +50,17 @@ export interface AppSettings {
   people: { id: string; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null; amountOwed?: number | null }[]
   activePersonId: string
   peopleTransactionCounts: Record<string, number>
+  importCategoryRules: ImportCategoryRule[]
   aiExternalAPIKey?: string | null
+}
+
+export type ImportCategoryRule = {
+  id: string
+  match: string
+  field: 'payee' | 'notes' | 'any'
+  appliesTo: 'expense' | 'income' | 'transfer' | 'any'
+  category: BillCategory
+  customCategoryName?: string | null
 }
 
 export function defaultSettings(): AppSettings {
@@ -84,6 +94,7 @@ export function defaultSettings(): AppSettings {
     people: [{ id: 'person-1', name: 'Person 1', phone: null, email: null, address: null, notes: null, amountOwed: null }],
     activePersonId: 'person-1',
     peopleTransactionCounts: {},
+    importCategoryRules: [],
     aiExternalAPIKey: null,
   }
 }

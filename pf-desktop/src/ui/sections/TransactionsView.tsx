@@ -10,6 +10,7 @@ import {
   parsePdfRowsWithOptions,
   pdfRowsToTransactions,
 } from '../../domain/pdfImport'
+import { applyImportCategoryRules } from '../../domain/importCategorization'
 import { useContextMenu } from '../ContextMenu'
 import { MenuSelect } from '../MenuSelect'
 import { TransactionKindIcon } from '../icons'
@@ -66,6 +67,8 @@ export function TransactionsView() {
   const [wizardCategory, setWizardCategory] = useState<BillCategory>('other')
   const [wizardCustomName, setWizardCustomName] = useState('')
   const [importingPdf, setImportingPdf] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importBusyText, setImportBusyText] = useState('Working on import…')
   const [convertingPdf, setConvertingPdf] = useState(false)
   const [pdfFormat, setPdfFormat] = useState<PdfImportFormat>('auto')
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -135,6 +138,20 @@ export function TransactionsView() {
     } else {
       window.alert(`Import complete. Imported ${imported.length} transactions.`)
     }
+  }
+
+  async function beginImportBusy(text: string) {
+    setImportBusyText(text)
+    setImportBusy(true)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  }
+
+  function updateImportBusy(text: string) {
+    setImportBusyText(text)
+  }
+
+  function endImportBusy() {
+    setImportBusy(false)
   }
 
   function payeeGroupKey(raw: string | null | undefined): string {
@@ -1025,43 +1042,55 @@ export function TransactionsView() {
 
   async function onPickCsv(file: File | null) {
     if (!file) return
-    const text = await file.text()
-    const rows = parseCsvRows(text)
-    const activeAccounts = state.accounts.filter((a) => !a.archived)
-    const resolveAccountId = (raw: string | undefined): UUID | null => {
-      const normalized = (raw ?? '').trim()
-      if (!normalized) return activeAccounts[0]?.id ?? null
-      const exact = activeAccounts.find((a) => a.name.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0)
-      if (exact) return exact.id
-      const contains = activeAccounts.find((a) => a.name.toLowerCase().includes(normalized.toLowerCase()) || (a.institution ?? '').toLowerCase().includes(normalized.toLowerCase()))
-      return contains?.id ?? activeAccounts[0]?.id ?? null
+    await beginImportBusy('Reading CSV…')
+    try {
+      const text = await file.text()
+      updateImportBusy('Parsing rows…')
+      const rows = parseCsvRows(text)
+      const activeAccounts = state.accounts.filter((a) => !a.archived)
+      const resolveAccountId = (raw: string | undefined): UUID | null => {
+        const normalized = (raw ?? '').trim()
+        if (!normalized) return activeAccounts[0]?.id ?? null
+        const exact = activeAccounts.find((a) => a.name.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0)
+        if (exact) return exact.id
+        const contains = activeAccounts.find((a) => a.name.toLowerCase().includes(normalized.toLowerCase()) || (a.institution ?? '').toLowerCase().includes(normalized.toLowerCase()))
+        return contains?.id ?? activeAccounts[0]?.id ?? null
+      }
+      const importedBase = rowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
+      updateImportBusy('Applying category rules…')
+      const fromRules = applyImportCategoryRules(importedBase, state.settings)
+      let autoCount = fromRules.appliedCount
+      const imported = fromRules.transactions.map((t) => {
+        if (t.kind !== 'expense') return t
+        const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
+        if (!isUncategorized) return t
+        const key = payeeGroupKey(t.payee)
+        if (!key) return t
+        const preset = payeeExpenseCategorization.get(key)
+        if (!preset) return t
+        autoCount += 1
+        return applyExpensePreset(t, preset)
+      })
+      if (imported.length === 0) {
+        window.alert('Import complete. No transactions were imported.')
+        return
+      }
+      updateImportBusy('Checking duplicates…')
+      if (openDuplicateImportModal('CSV', imported, autoCount)) return
+      updateImportBusy('Saving imported transactions…')
+      commitImportTransactions(imported, autoCount)
+    } finally {
+      endImportBusy()
     }
-    const importedBase = rowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
-    let autoCount = 0
-    const imported = importedBase.map((t) => {
-      if (t.kind !== 'expense') return t
-      const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
-      if (!isUncategorized) return t
-      const key = payeeGroupKey(t.payee)
-      if (!key) return t
-      const preset = payeeExpenseCategorization.get(key)
-      if (!preset) return t
-      autoCount += 1
-      return applyExpensePreset(t, preset)
-    })
-    if (imported.length === 0) {
-      window.alert('Import complete. No transactions were imported.')
-      return
-    }
-    if (openDuplicateImportModal('CSV', imported, autoCount)) return
-    commitImportTransactions(imported, autoCount)
   }
 
   async function onPickPdf(file: File | null) {
     if (!file) return
     setImportingPdf(true)
+    await beginImportBusy('Reading PDF…')
     try {
       const rows = await parsePdfRowsWithOptions(file, { format: pdfFormat })
+      updateImportBusy('Parsing transactions…')
       const activeAccounts = state.accounts.filter((a) => !a.archived)
       const resolveAccountId = (raw: string | undefined): UUID | null => {
         const normalized = (raw ?? '').trim()
@@ -1072,8 +1101,10 @@ export function TransactionsView() {
         return contains?.id ?? activeAccounts[0]?.id ?? null
       }
       const importedBase = pdfRowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
-      let autoCount = 0
-      const imported = importedBase.map((t) => {
+      updateImportBusy('Applying category rules…')
+      const fromRules = applyImportCategoryRules(importedBase, state.settings)
+      let autoCount = fromRules.appliedCount
+      const imported = fromRules.transactions.map((t) => {
         if (t.kind !== 'expense') return t
         const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
         if (!isUncategorized) return t
@@ -1088,13 +1119,16 @@ export function TransactionsView() {
         window.alert('Import complete. No transactions could be identified in the PDF.')
         return
       }
+      updateImportBusy('Checking duplicates…')
       if (openDuplicateImportModal('PDF', imported, autoCount)) return
+      updateImportBusy('Saving imported transactions…')
       commitImportTransactions(imported, autoCount)
     } catch (e) {
       console.error(e)
       window.alert('Failed to parse PDF file. Ensure it is a valid bank statement PDF.')
     } finally {
       setImportingPdf(false)
+      endImportBusy()
     }
   }
 
@@ -1306,6 +1340,17 @@ export function TransactionsView() {
 
   return (
     <>
+      {importBusy ? (
+        <div className="modalBackdrop">
+          <div className="modal" style={{ width: 'min(440px, calc(100vw - 32px))' }}>
+            <div className="modalTitle">Please wait</div>
+            <div className="busyRow" style={{ marginTop: 8 }}>
+              <span className="busySpinner" aria-hidden="true" />
+              <span>{importBusyText || 'Working on import…'}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {importDuplicateModal ? (
         <div
           className="modalBackdrop"

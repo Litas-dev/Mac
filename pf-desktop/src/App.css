@@ -1,6 +1,6 @@
 .shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: auto 1fr;
   height: 100vh;
   width: 100%;
   background: var(--bg);
@@ -14,6 +14,13 @@
   background: rgba(24, 26, 29, 0.92);
   padding: 16px 10px;
   overflow: hidden;
+  width: 240px;
+  transition: width 180ms ease, padding 180ms ease;
+}
+
+.shellSidebarCollapsed .sidebar {
+  width: 66px;
+  padding: 16px 8px;
 }
 
 .sidebarDragGutter {
@@ -25,11 +32,48 @@
 }
 
 .brand {
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 12px 16px;
   color: var(--text-h);
+  min-height: 40px;
+}
+
+.brandMark {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+  border-radius: 7px;
+}
+
+.brandName {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  font-size: 13px;
+  transition: opacity 160ms ease, transform 160ms ease;
+  transform: translateX(0);
+  opacity: 1;
+  white-space: nowrap;
+}
+
+.shellSidebarCollapsed .brand {
+  justify-content: center;
+  padding: 10px 8px 16px;
+}
+
+.shellSidebarCollapsed .brandMark {
+  width: 26px;
+  height: 26px;
+}
+
+.shellSidebarCollapsed .brandName {
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+  width: 0;
+  overflow: hidden;
 }
 
 .sbNav {
@@ -38,6 +82,10 @@
   flex-direction: column;
   gap: 12px;
   overflow: auto;
+}
+
+.shellSidebarCollapsed .sbNav {
+  gap: 2px;
 }
 
 .sidebarDragSpacer {
@@ -50,6 +98,57 @@
   text-transform: uppercase;
   color: var(--muted);
   padding: 0 12px 6px;
+  transition: opacity 160ms ease, transform 160ms ease, max-height 160ms ease, padding 160ms ease;
+  max-height: 40px;
+  overflow: hidden;
+}
+
+.sbGroupTitleRow {
+  padding: 0 8px 6px;
+}
+
+.sbGroupTitleBtn {
+  width: 100%;
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 6px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sbGroupTitleBtn:hover {
+  background: var(--hover);
+}
+
+.sbGroupTitleText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sbGroupTitleCaret {
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.shellSidebarCollapsed .sbGroupTitle {
+  opacity: 0;
+  transform: translateX(-6px);
+  max-height: 0;
+  padding: 0 0 0;
+}
+
+.shellSidebarCollapsed .sbGroupTitleRow {
+  display: none;
 }
 
 .sbItem {
@@ -69,6 +168,18 @@
   transition: background 120ms ease, border-color 120ms ease;
 }
 
+.shellSidebarCollapsed .sbItem {
+  grid-template-columns: 1fr;
+  gap: 0;
+  justify-items: center;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin: 0 auto;
+  padding: 0;
+  border-radius: 12px;
+}
+
 .sbItem:hover {
   background: var(--hover);
 }
@@ -85,11 +196,38 @@
   place-items: center;
 }
 
+.shellSidebarCollapsed .sbIcon {
+  width: 34px;
+  height: 34px;
+}
+
+.shellSidebarCollapsed .sbIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
 .sbText {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  transition: opacity 160ms ease, transform 160ms ease;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.shellSidebarCollapsed .sbText {
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+  width: 0;
+  overflow: hidden;
+}
+
+.shellSidebarCollapsed .sbGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .sbTitle {
@@ -499,6 +637,11 @@
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--border);
+    width: auto;
+  }
+  .shellSidebarCollapsed .sidebar {
+    width: auto;
+    padding: 16px 10px;
   }
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -790,6 +933,49 @@
 
 .listItem.active {
   background: var(--accent-bg);
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.ruleRowMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ruleRowTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.ruleRowMeta {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.ruleRowActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ruleRowActions button {
+  padding: 6px 8px;
+  font-size: 12px;
 }
 
 .folderRow {
@@ -1413,6 +1599,32 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
+}
+
+.busyRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.busySpinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(10, 132, 255, 0.95);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .modalActions button {
