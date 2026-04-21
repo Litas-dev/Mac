@@ -19,6 +19,7 @@ build/
 # Local-only app sources / scripts
 Sources/
 generate_deploy.py
+tools/
 
 # Xcode
 DerivedData/
