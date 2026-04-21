@@ -1,38 +1,60 @@
 ---
 name: Bug report
-about: Create a report to help us improve
-title: ''
-labels: ''
+about: Report something broken in Kivana
+title: "[Bug] "
+labels: bug
 assignees: ''
-
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## What happened?
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
+Describe the bug. What did you expect vs what actually happened?
+
+## Steps to reproduce
+
+1. Go to '...' (e.g. Bills → Add Bill)
 2. Click on '....'
-3. Scroll down to '....'
-4. See error
+3. Enter '....'
+4. See error / unexpected behavior
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Platform
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+- [ ] macOS
+- [ ] Windows
+- [ ] Web mode
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+## App version
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+e.g. 0.3.0 (found in Settings → About)
 
-**Additional context**
-Add any other context about the problem here.
+## Data context
+
+- [ ] Fresh install, no data
+- [ ] Existing data (bills, income, accounts, etc.)
+- [ ] After importing from CSV / PDF / backup
+
+## Specific area
+
+- [ ] Dashboard / Overview
+- [ ] Bills (creation, recurrence, payment, snooze, skip)
+- [ ] Income (creation, receipt logging, skip)
+- [ ] Accounts / Transactions
+- [ ] CSV Import
+- [ ] PDF Import / PDF to CSV
+- [ ] Import category rules
+- [ ] Invoices / File attachments
+- [ ] Reports / Charts
+- [ ] Calendar / ICS export
+- [ ] Goals / Debts
+- [ ] People profiles
+- [ ] Backup / Restore (.pfbackup)
+- [ ] Notifications / Reminders
+- [ ] AI command bar
+- [ ] Settings / Updates
+- [ ] Auth / Sign in / Sign up
+- [ ] Licensing / Pro features
+
+## Error details
+
+If you see an error message, paste it here:
+
