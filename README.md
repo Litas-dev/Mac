@@ -99,7 +99,7 @@ I read every request. Highest-voted issues get prioritized.
 This project is source-available for evaluation. 
 Commercial use requires a license. [Contact me](mailto:kojankus@gmail.com) for inquiries.
 
-See [LICENSE](./LICENSE) for details.
+See [LICENSE](./LICENSE.md) for details.
 
 ## Build & Run (Developer)
 
