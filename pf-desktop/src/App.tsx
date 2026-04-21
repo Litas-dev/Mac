@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './app/appStore'
 import { SectionRouter } from './ui/SectionRouter'
 import { OnboardingModal } from './ui/OnboardingModal'
@@ -15,7 +15,7 @@ import { normalizePeopleSettings } from './domain/people'
 import { isAdvancedAccount } from './licensing/licenseGates'
 import type { Bill, Income } from './domain/models'
 
-function App() {
+function MainApp() {
   const store = useAppStore()
   const { state, dispatch } = store
   const auth = useAuth()
@@ -189,7 +189,508 @@ function App() {
   )
 }
 
+function App() {
+  const isPdfViewerWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pdfViewer') === '1'
+  return isPdfViewerWindow ? <PdfViewerWindow /> : <MainApp />
+}
+
 export default App
+
+function PdfViewerWindow() {
+  const [title, setTitle] = useState('PDF')
+  const [pageCount, setPageCount] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [page, setPage] = useState(1)
+  const [zoom, setZoom] = useState(1.15)
+  const [tool, setTool] = useState<'pan' | 'highlight'>('pan')
+  const [highlightsByPage, setHighlightsByPage] = useState<Record<number, Array<{ x: number; y: number; w: number; h: number }>>>({})
+  const [printImages, setPrintImages] = useState<string[] | null>(null)
+  const [printing, setPrinting] = useState(false)
+  const docRef = useRef<any>(null)
+  const [docKey, setDocKey] = useState(0)
+  const tokenRef = useRef(0)
+
+  const loadPdf = useCallback(async (relRaw: string, nextTitleRaw: string) => {
+    const rel = String(relRaw ?? '').trim()
+    if (!rel) return
+    const nextTitle = String(nextTitleRaw ?? '').trim() || 'PDF'
+    setTitle(nextTitle)
+    tokenRef.current += 1
+    const token = tokenRef.current
+    setBusy(true)
+    docRef.current = null
+    setPageCount(0)
+    setPage(1)
+    setZoom(1.15)
+    setTool('pan')
+    setHighlightsByPage({})
+    setPrintImages(null)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const r = (await invoke('read_attachment_file', { storedRelativePath: rel })) as any
+      const b64 = String(r?.base64 ?? '')
+      if (!b64) return
+      const bytes = base64ToBytes(b64)
+      const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
+      const doc = await pdfjs.getDocument({ data: bytes }).promise
+      if (tokenRef.current !== token) return
+      docRef.current = doc
+      setPageCount(Number(doc?.numPages ?? 0))
+      setDocKey((k) => k + 1)
+    } finally {
+      if (tokenRef.current === token) setBusy(false)
+    }
+  }, [])
+
+  function base64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  }
+
+  const closeWindow = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      window.close()
+      return
+    }
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await getCurrentWindow().close()
+  }, [])
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const rel = String(sp.get('rel') ?? '').trim()
+    const t = String(sp.get('title') ?? '').trim()
+    if (rel) void loadPdf(rel, t || 'PDF')
+  }, [loadPdf])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlisten: null | (() => void) = null
+    void (async () => {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      const win = getCurrentWindow()
+      unlisten = await win.listen('pdf:open', (e) => {
+        const payload: any = (e as any)?.payload ?? null
+        const rel = String(payload?.rel ?? '').trim()
+        const t = String(payload?.title ?? '').trim()
+        if (rel) void loadPdf(rel, t || 'PDF')
+      })
+    })()
+    return () => {
+      unlisten?.()
+      docRef.current = null
+    }
+  }, [loadPdf])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') void closeWindow()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [closeWindow])
+
+  useEffect(() => {
+    if (!printImages) return
+    function onAfterPrint() {
+      setPrintImages(null)
+      setPrinting(false)
+    }
+    window.addEventListener('afterprint', onAfterPrint)
+    return () => window.removeEventListener('afterprint', onAfterPrint)
+  }, [printImages])
+
+  useEffect(() => {
+    if (!printImages) return
+    let cancelled = false
+    void (async () => {
+      for (let i = 0; i < 80; i++) {
+        if (cancelled) return
+        const imgs = Array.from(document.querySelectorAll('img[data-pdf-print="1"]')) as HTMLImageElement[]
+        const ok = imgs.length === printImages.length && imgs.every((img) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0)
+        if (ok) break
+        await new Promise((r) => setTimeout(r, 40))
+      }
+      if (cancelled) return
+      try {
+        window.print()
+      } catch {
+        setPrintImages(null)
+        setPrinting(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [printImages])
+
+  const canPrev = page > 1
+  const canNext = pageCount > 0 && page < pageCount
+
+  async function doPrint(mode: 'all' | 'current') {
+    if (printing) return
+    const doc = docRef.current
+    if (!doc) return
+    setPrinting(true)
+    try {
+      const imgs: string[] = []
+      const total = Number(doc?.numPages ?? 0)
+      const start = mode === 'current' ? page : 1
+      const end = mode === 'current' ? page : total
+      for (let p = start; p <= end; p++) {
+        const pageObj = await doc.getPage(p)
+        const viewport = pageObj.getViewport({ scale: 1.85 })
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) continue
+        canvas.width = Math.max(1, Math.floor(viewport.width))
+        canvas.height = Math.max(1, Math.floor(viewport.height))
+        await pageObj.render({ canvasContext: ctx, viewport }).promise
+        applyCanvasWatermark(ctx, canvas.width, canvas.height, 'Kivana')
+        const hs = highlightsByPage[p] ?? []
+        drawHighlights(ctx, canvas.width, canvas.height, hs)
+        imgs.push(canvas.toDataURL('image/jpeg', 0.92))
+      }
+      setPrintImages(imgs)
+    } catch {
+      setPrinting(false)
+      setPrintImages(null)
+    }
+  }
+
+  return (
+    <div className="pdfViewerWindow" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {printImages ? null : (
+        <div
+          className="pdfViewerTitlebar"
+          data-tauri-drag-region
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--panel)',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }} data-tauri-drag-region>
+            <img src="/kivana-logo.png" alt="Kivana logo" style={{ width: 28, height: 28, borderRadius: 10 }} draggable={false} data-tauri-drag-region />
+            <div style={{ minWidth: 0 }} data-tauri-drag-region>
+              <div style={{ fontWeight: 800, color: 'var(--text-h)', lineHeight: 1.2 }} data-tauri-drag-region>
+                Kivana • PDF
+              </div>
+              <div className="note" style={{ marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {title}
+              </div>
+            </div>
+          </div>
+          <div style={{ flex: 1 }} data-tauri-drag-region />
+          <div className="modalActions" style={{ marginTop: 0, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button type="button" disabled={!canPrev} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Prev
+            </button>
+            <div className="note" style={{ minWidth: 92, textAlign: 'center' }}>
+              {pageCount ? `${page} / ${pageCount}` : ''}
+            </div>
+            <button type="button" disabled={!canNext} onClick={() => setPage((p) => Math.min(pageCount || 1, p + 1))}>
+              Next
+            </button>
+            <button type="button" onClick={() => setZoom((z) => Math.max(0.6, Math.round((z - 0.1) * 100) / 100))}>
+              −
+            </button>
+            <div className="note" style={{ minWidth: 52, textAlign: 'center' }}>
+              {Math.round(zoom * 100)}%
+            </div>
+            <button type="button" onClick={() => setZoom((z) => Math.min(2.2, Math.round((z + 0.1) * 100) / 100))}>
+              +
+            </button>
+            <button type="button" className={tool === 'highlight' ? 'btnPrimary' : undefined} onClick={() => setTool((t) => (t === 'highlight' ? 'pan' : 'highlight'))}>
+              Highlight
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setHighlightsByPage((prev) => {
+                  const next = { ...prev }
+                  delete next[page]
+                  return next
+                })
+              }
+            >
+              Clear
+            </button>
+            <button type="button" onClick={() => void doPrint('current')} disabled={!docRef.current || printing}>
+              Print page
+            </button>
+            <button type="button" onClick={() => void doPrint('all')} disabled={!docRef.current || printing}>
+              {printing ? 'Printing…' : 'Print all'}
+            </button>
+            <button type="button" onClick={() => void closeWindow()}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="pdfViewerContent" style={{ flex: 1, background: printImages ? '#fff' : 'rgba(255,255,255,0.03)', overflow: 'auto' }}>
+        {printImages ? (
+          <div className="pdfPrintRoot">
+            {printImages.map((src, idx) => (
+              <div
+                key={src.slice(0, 48) + idx}
+                className="pdfPrintPage"
+                style={{ breakAfter: 'page' as any, pageBreakAfter: 'always' as any, breakInside: 'avoid' as any, pageBreakInside: 'avoid' as any }}
+              >
+                <img data-pdf-print="1" src={src} className="pdfPrintImg" />
+              </div>
+            ))}
+          </div>
+        ) : docRef.current && pageCount > 0 ? (
+          <div style={{ padding: 18 }}>
+            <PdfSinglePage
+              key={`${docKey}-${page}-${zoom}-${tool}`}
+              doc={docRef.current}
+              page={page}
+              zoom={zoom}
+              tool={tool}
+              watermark="Kivana"
+              highlights={highlightsByPage[page] ?? []}
+              onAddHighlight={(h) =>
+                setHighlightsByPage((prev) => {
+                  const next = { ...prev }
+                  next[page] = [...(next[page] ?? []), h]
+                  return next
+                })
+              }
+            />
+          </div>
+        ) : (
+          <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+            <div className="busyRow">
+              <div className="busySpinner" />
+              <div>{busy ? 'Loading PDF…' : 'Waiting…'}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function applyCanvasWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, text: string) {
+  const s = Math.max(42, Math.floor(Math.min(w, h) * 0.12))
+  const stepX = Math.max(220, Math.floor(w * 0.55))
+  const stepY = Math.max(180, Math.floor(h * 0.45))
+  const angle = (-22 * Math.PI) / 180
+  ctx.save()
+  ctx.globalAlpha = 0.18
+  ctx.fillStyle = '#000'
+  ctx.font = `900 ${s}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  for (let y = -stepY; y <= h + stepY; y += stepY) {
+    for (let x = -stepX; x <= w + stepX; x += stepX) {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(angle)
+      ctx.fillText(text, 0, 0)
+      ctx.restore()
+    }
+  }
+  ctx.restore()
+}
+
+function drawHighlights(ctx: CanvasRenderingContext2D, w: number, h: number, hs: Array<{ x: number; y: number; w: number; h: number }>) {
+  if (!hs.length) return
+  ctx.save()
+  ctx.globalAlpha = 1
+  ctx.fillStyle = 'rgba(255, 230, 70, 0.30)'
+  for (const r of hs) {
+    const rx = Math.max(0, Math.min(w, r.x * w))
+    const ry = Math.max(0, Math.min(h, r.y * h))
+    const rw = Math.max(0, Math.min(w - rx, r.w * w))
+    const rh = Math.max(0, Math.min(h - ry, r.h * h))
+    if (rw <= 0 || rh <= 0) continue
+    ctx.fillRect(rx, ry, rw, rh)
+  }
+  ctx.restore()
+}
+
+function PdfSinglePage(props: {
+  doc: any
+  page: number
+  zoom: number
+  tool: 'pan' | 'highlight'
+  watermark: string
+  highlights: Array<{ x: number; y: number; w: number; h: number }>
+  onAddHighlight: (h: { x: number; y: number; w: number; h: number }) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const renderTaskRef = useRef<any>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [dragNow, setDragNow] = useState<{ x: number; y: number } | null>(null)
+
+  const watermarkBg = (() => {
+    const t = String(props.watermark || '').trim() || 'Kivana'
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="460" height="320">` +
+      `<g transform="translate(230 160) rotate(-22)">` +
+      `<text x="0" y="0" text-anchor="middle" dominant-baseline="middle" ` +
+      `fill="#000" fill-opacity="0.18" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial" font-size="74" font-weight="900" letter-spacing="6">` +
+      `${t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}` +
+      `</text>` +
+      `</g>` +
+      `</svg>`
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+  })()
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (renderTaskRef.current?.cancel) {
+        try {
+          renderTaskRef.current.cancel()
+        } catch {
+        }
+        renderTaskRef.current = null
+      }
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      const pageObj = await props.doc.getPage(props.page)
+      const viewport = pageObj.getViewport({ scale: 1.45 * props.zoom })
+      canvas.width = Math.max(1, Math.floor(viewport.width))
+      canvas.height = Math.max(1, Math.floor(viewport.height))
+      const task = pageObj.render({ canvasContext: ctx, viewport })
+      renderTaskRef.current = task
+      try {
+        await task.promise
+      } catch (e: any) {
+        const name = String(e?.name ?? '')
+        const msg = String(e?.message ?? e ?? '')
+        if (name.includes('RenderingCancelled') || msg.toLowerCase().includes('cancel')) return
+        return
+      } finally {
+        if (renderTaskRef.current === task) renderTaskRef.current = null
+      }
+      if (cancelled) return
+      applyCanvasWatermark(ctx, canvas.width, canvas.height, props.watermark)
+      drawHighlights(ctx, canvas.width, canvas.height, props.highlights)
+    })()
+    return () => {
+      cancelled = true
+      if (renderTaskRef.current?.cancel) {
+        try {
+          renderTaskRef.current.cancel()
+        } catch {
+        }
+      }
+      renderTaskRef.current = null
+    }
+  }, [props.doc, props.page, props.watermark, props.zoom, props.highlights])
+
+  function toNorm(e: React.PointerEvent) {
+    const el = boxRef.current
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    const x = (e.clientX - r.left) / Math.max(1, r.width)
+    const y = (e.clientY - r.top) / Math.max(1, r.height)
+    return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (props.tool !== 'highlight') return
+    const p = toNorm(e)
+    if (!p) return
+    setDragStart(p)
+    setDragNow(p)
+    ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (props.tool !== 'highlight') return
+    if (!dragStart) return
+    const p = toNorm(e)
+    if (!p) return
+    setDragNow(p)
+  }
+
+  function onPointerUp(e: React.PointerEvent) {
+    if (props.tool !== 'highlight') return
+    if (!dragStart) return
+    const p = toNorm(e)
+    const end = p ?? dragNow ?? dragStart
+    const x0 = Math.min(dragStart.x, end.x)
+    const y0 = Math.min(dragStart.y, end.y)
+    const x1 = Math.max(dragStart.x, end.x)
+    const y1 = Math.max(dragStart.y, end.y)
+    const w = x1 - x0
+    const h = y1 - y0
+    setDragStart(null)
+    setDragNow(null)
+    if (w < 0.01 || h < 0.01) return
+    props.onAddHighlight({ x: x0, y: y0, w, h })
+  }
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        width: 'min(980px, 100%)',
+        margin: '0 auto 18px auto',
+        borderRadius: 12,
+        background: '#fff',
+        boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
+        overflow: 'hidden',
+      }}
+      ref={boxRef}
+    >
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          backgroundImage: watermarkBg,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '460px 320px',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: props.tool === 'highlight' ? 'auto' : 'none',
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {dragStart && dragNow ? (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${Math.min(dragStart.x, dragNow.x) * 100}%`,
+              top: `${Math.min(dragStart.y, dragNow.y) * 100}%`,
+              width: `${Math.abs(dragNow.x - dragStart.x) * 100}%`,
+              height: `${Math.abs(dragNow.y - dragStart.y) * 100}%`,
+              background: 'rgba(255, 230, 70, 0.25)',
+              outline: '2px solid rgba(255, 230, 70, 0.65)',
+              borderRadius: 4,
+            }}
+          />
+        ) : null}
+      </div>
+    </div>
+  )
+}
 
 function titleForSection(section: string): string {
   switch (section) {

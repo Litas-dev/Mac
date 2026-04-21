@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Kivana",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "identifier": "com.personal.PersonalFinances",
   "build": {
     "frontendDist": "../dist",
@@ -29,7 +29,9 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https: http: http://localhost:11434",
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {

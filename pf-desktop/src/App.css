@@ -258,6 +258,66 @@
   min-height: 0;
 }
 
+@page {
+  margin: 8mm;
+}
+
+@media print {
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .pdfViewerWindow {
+    height: auto !important;
+    display: block !important;
+  }
+
+  .pdfViewerContent {
+    overflow: visible !important;
+    height: auto !important;
+    flex: none !important;
+    display: block !important;
+    background: #fff !important;
+  }
+
+  .pdfPrintRoot {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .pdfPrintPage {
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .pdfPrintPage:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .pdfPrintImg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    object-fit: contain;
+  }
+}
+
+.pdfViewerTitlebar {
+  -webkit-app-region: drag;
+}
+
+.pdfViewerTitlebar button {
+  -webkit-app-region: no-drag;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;

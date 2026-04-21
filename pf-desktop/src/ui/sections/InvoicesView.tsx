@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
 import type { Invoice, InvoiceAttachment } from '../../domain/models'
 import { fromDateInputValue, toDateInputValue } from '../date'
@@ -35,6 +35,15 @@ export function InvoicesView() {
   const [imageThumbById, setImageThumbById] = useState<Record<string, string>>({})
   const [dragId, setDragId] = useState<string | null>(null)
   const dragOverId = useRef<string | null>(null)
+  const [dragFolderOver, setDragFolderOver] = useState<string | null>(null)
+  const [dragCount, setDragCount] = useState(0)
+  const internalDragIdsRef = useRef<string[] | null>(null)
+  const dragFolderOverRef = useRef<string | null>(null)
+  const folderFilterRef = useRef(folderFilter)
+  const addTargetFolderRef = useRef(addTargetFolder)
+  const isSavingRef = useRef(isSaving)
+  const addInvoiceFilesFromPathsRef = useRef<(paths: string[], targetFolder?: string | null) => Promise<void>>(async () => {})
+  const invoicesRef = useRef(state.invoices)
 
   const peopleSettings = useMemo(() => normalizePeopleSettings(state.settings as any), [state.settings])
   const activePerson = useMemo(() => {
@@ -283,33 +292,25 @@ export function InvoicesView() {
     }
   }
 
-  function resolvedFolderChoice(choice: string): string | null {
+  function resolvedFolderChoice(choice: string, currentFolderFilter: string): string | null {
     if (choice === AUTO_FOLDER) {
-      if (folderFilter === UNFILED || folderFilter === 'all') return null
-      return folderFilter
+      if (currentFolderFilter === UNFILED || currentFolderFilter === 'all') return null
+      return currentFolderFilter
     }
     if (choice === UNFILED) return null
     return choice.trim() ? choice.trim() : null
   }
 
-  async function addInvoiceImages(targetFolder?: string | null) {
+  async function addInvoiceFilesFromPaths(paths: string[], targetFolder?: string | null) {
     if (!isTauriRuntime()) {
       window.alert('File storage is available in the desktop app (Tauri).')
       return
     }
     setIsSaving(true)
     try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
       const { invoke } = await import('@tauri-apps/api/core')
-      const paths = await open({
-        multiple: true,
-        directory: false,
-        filters: [
-          { name: 'Files', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif', 'pdf'] },
-        ],
-      })
-      if (!paths) return
-      const list = Array.isArray(paths) ? paths : [paths]
+      const list = paths.map((x) => String(x).trim()).filter((x) => x.length > 0)
+      if (list.length === 0) return
       const createdIds: string[] = []
       const baseOrder = Math.max(0, ...state.invoices.map((x) => x.order ?? 0))
       let order = baseOrder + 1
@@ -355,6 +356,31 @@ export function InvoicesView() {
     }
   }
 
+  addInvoiceFilesFromPathsRef.current = addInvoiceFilesFromPaths
+
+  async function addInvoiceImages(targetFolder?: string | null) {
+    if (!isTauriRuntime()) {
+      window.alert('File storage is available in the desktop app (Tauri).')
+      return
+    }
+    setIsSaving(true)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const paths = await open({
+        multiple: true,
+        directory: false,
+        filters: [
+          { name: 'Files', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif', 'pdf'] },
+        ],
+      })
+      if (!paths) return
+      const list = Array.isArray(paths) ? paths : [paths]
+      await addInvoiceFilesFromPaths(list, targetFolder)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   async function removeInvoice(inv: Invoice) {
     if (isTauriRuntime()) {
       try {
@@ -378,6 +404,173 @@ export function InvoicesView() {
   function isImagePath(p: string | null): boolean {
     const s = String(p ?? '').toLowerCase()
     return s.endsWith('.png') || s.endsWith('.jpg') || s.endsWith('.jpeg') || s.endsWith('.webp') || s.endsWith('.heic') || s.endsWith('.heif') || s.endsWith('.gif')
+  }
+
+  async function openPdfViewerFor(inv: Invoice) {
+    const rel = String(inv.attachments?.[0]?.storedRelativePath ?? '').trim()
+    if (!rel) return
+    if (!isPdfPath(rel)) return
+    const title = String(inv.attachments?.[0]?.displayName ?? inv.title ?? 'PDF').trim() || 'PDF'
+    if (!isTauriRuntime()) {
+      window.alert('PDF viewing is available in the desktop app (Tauri).')
+      return
+    }
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+      const existing = await WebviewWindow.getByLabel('pdf-viewer')
+      if (existing) {
+        try {
+          await existing.close()
+        } catch {
+        }
+      }
+      const w = new WebviewWindow('pdf-viewer', {
+        url: `${window.location.origin}/?pdfViewer=1&rel=${encodeURIComponent(rel)}&title=${encodeURIComponent(title)}`,
+        title: 'Kivana • PDF',
+        width: 1120,
+        height: 860,
+        resizable: true,
+        center: true,
+        decorations: true,
+        titleBarStyle: 'overlay',
+        hiddenTitle: true,
+        theme: 'dark',
+        visible: true,
+        focus: true,
+      })
+      void w.once('tauri://error', (e) => {
+        const payload: any = (e as any)?.payload ?? e
+        console.error('Failed to create PDF window', payload)
+        window.alert(String(payload?.message ?? payload ?? 'Failed to create PDF window.'))
+      })
+    } catch (err) {
+      console.error('Failed to open PDF window', err)
+      window.alert(String((err as any)?.message ?? err ?? 'Failed to open PDF window.'))
+    }
+  }
+
+  useEffect(() => {
+    folderFilterRef.current = folderFilter
+  }, [folderFilter])
+
+  useEffect(() => {
+    addTargetFolderRef.current = addTargetFolder
+  }, [addTargetFolder])
+
+  useEffect(() => {
+    isSavingRef.current = isSaving
+  }, [isSaving])
+
+  useEffect(() => {
+    invoicesRef.current = state.invoices
+  }, [state.invoices])
+
+  useEffect(() => {
+    dragFolderOverRef.current = dragFolderOver
+  }, [dragFolderOver])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlistenFileDrop: null | (() => void) = null
+    let unlistenDragDrop: null | (() => void) = null
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+
+      function extractPaths(payload: unknown): string[] {
+        if (Array.isArray(payload)) return payload.map((x) => String(x).trim()).filter((x) => x.length > 0)
+        if (!payload || typeof payload !== 'object') return []
+        const p: any = payload as any
+        if (Array.isArray(p.paths)) return p.paths.map((x: any) => String(x).trim()).filter((x: string) => x.length > 0)
+        if (p.payload && typeof p.payload === 'object') return extractPaths(p.payload)
+        return []
+      }
+
+      function isDropEvent(payload: unknown): boolean {
+        if (!payload || typeof payload !== 'object') return true
+        const p: any = payload as any
+        const rawType = p.type ?? p.event ?? p.kind ?? null
+        const nestedType =
+          rawType && typeof rawType === 'object' ? (rawType as any).__variant ?? (rawType as any).type ?? (rawType as any).event ?? (rawType as any).kind : null
+        const t = String((typeof rawType === 'string' ? rawType : nestedType) ?? '').toLowerCase().trim()
+        if (!t) return true
+        return t === 'drop'
+      }
+
+      async function onPathsDropped(payload: unknown) {
+        if (isSavingRef.current) return
+        if (!isDropEvent(payload)) return
+        const paths = extractPaths(payload)
+        if (paths.length === 0) return
+        const target = resolvedFolderChoice(addTargetFolderRef.current, folderFilterRef.current)
+        await addInvoiceFilesFromPathsRef.current(paths, target)
+      }
+
+      unlistenFileDrop = await listen('tauri://file-drop', (event) => {
+        void onPathsDropped((event as any)?.payload)
+      })
+      unlistenDragDrop = await listen('tauri://drag-drop', (event) => {
+        void onPathsDropped((event as any)?.payload)
+      })
+    })()
+    return () => {
+      if (unlistenFileDrop) unlistenFileDrop()
+      if (unlistenDragDrop) unlistenDragDrop()
+    }
+  }, [])
+
+  function endInternalDrag() {
+    internalDragIdsRef.current = null
+    setDragFolderOver(null)
+    setDragId(null)
+    dragOverId.current = null
+    setDragCount(0)
+  }
+
+  function folderFromPoint(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y)
+    if (!el) return null
+    const folderEl = el.closest('[data-invoices-folder]')
+    if (!folderEl) return null
+    const raw = folderEl.getAttribute('data-invoices-folder')
+    if (!raw) return null
+    if (raw === UNFILED) return UNFILED
+    return raw
+  }
+
+  function onFolderDragMove(x: number, y: number) {
+    if (!internalDragIdsRef.current || internalDragIdsRef.current.length === 0) return
+    const f = folderFromPoint(x, y)
+    if (dragFolderOverRef.current !== f) setDragFolderOver(f)
+  }
+
+  function startFolderDrag(e: PointerEvent, invId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    const ids = selectMode && selectedIds.has(invId) && selectedIds.size > 0 ? Array.from(selectedIds) : [invId]
+    internalDragIdsRef.current = ids
+    setDragCount(ids.length)
+    setDragFolderOver(null)
+    dragFolderOverRef.current = null
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    onFolderDragMove(e.clientX, e.clientY)
+  }
+
+  function finishFolderDrag(x: number, y: number) {
+    const ids = internalDragIdsRef.current ?? []
+    if (ids.length === 0) return
+    const f = folderFromPoint(x, y)
+    if (!f) {
+      endInternalDrag()
+      return
+    }
+    const folder = f === UNFILED ? null : f
+    for (const id of ids) {
+      const inv = invoicesRef.current.find((z) => z.id === id)
+      if (!inv) continue
+      dispatch({ type: 'invoices/update', invoice: { ...inv, folder } })
+    }
+    clearSelection()
+    endInternalDrag()
   }
 
   useEffect(() => {
@@ -725,7 +918,7 @@ export function InvoicesView() {
           </button>
           <button
             type="button"
-            onClick={() => void addInvoiceImages(resolvedFolderChoice(addTargetFolder))}
+            onClick={() => void addInvoiceImages(resolvedFolderChoice(addTargetFolder, folderFilter))}
             className="btnPrimary"
             disabled={isSaving}
           >
@@ -739,11 +932,37 @@ export function InvoicesView() {
         <div className="note">Files are saved inside the app data folder, so you can include them in backups.</div>
         <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'start' }}>
           <div className="list">
+            {dragCount > 0 ? (
+              <div
+                className="listItem"
+                style={{
+                  background: 'var(--accent-bg)',
+                  outline: '2px solid var(--accent)',
+                  outlineOffset: -2,
+                  padding: '10px 12px',
+                  fontWeight: 700,
+                }}
+              >
+                {dragFolderOver
+                  ? `Drop to move ${dragCount} file${dragCount === 1 ? '' : 's'}: ${dragFolderOver === UNFILED ? 'Unfiled' : dragFolderOver}`
+                  : `Drag over a folder to move ${dragCount} file${dragCount === 1 ? '' : 's'}.`}
+              </div>
+            ) : null}
             <button type="button" className={folderFilter === 'all' ? 'listItem active' : 'listItem'} onClick={() => setFolderFilter('all')}>
               <div className="listTitle">All files</div>
               <div className="listMeta">{sorted.length}</div>
             </button>
-            <button type="button" className={folderFilter === UNFILED ? 'listItem active' : 'listItem'} onClick={() => setFolderFilter(UNFILED)}>
+            <button
+              type="button"
+              className={folderFilter === UNFILED ? 'listItem active' : 'listItem'}
+              onClick={() => setFolderFilter(UNFILED)}
+              data-invoices-folder={UNFILED}
+              style={
+                dragFolderOver === UNFILED
+                  ? { background: 'var(--accent-bg)', outline: '2px solid var(--accent)', outlineOffset: -2 }
+                  : undefined
+              }
+            >
               <div className="listTitle">Unfiled</div>
               <div className="listMeta">{sorted.filter((x) => !String(x.folder ?? '').trim()).length}</div>
             </button>
@@ -753,10 +972,16 @@ export function InvoicesView() {
                 className={folderFilter === f.name ? 'folderRow active' : 'folderRow'}
                 role="button"
                 tabIndex={0}
+                data-invoices-folder={f.name}
                 onClick={() => setFolderFilter(f.name)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') setFolderFilter(f.name)
                 }}
+                style={
+                  dragFolderOver === f.name
+                    ? { background: 'var(--accent-bg)', outline: '2px solid var(--accent)', outlineOffset: -2 }
+                    : undefined
+                }
               >
                 <div className="folderRowMain">
                   <div className="folderRowTitle">{f.name}</div>
@@ -811,48 +1036,84 @@ export function InvoicesView() {
                 const isPdf = isPdfPath(rel)
                 const pdfThumb = pdfThumbById[inv.id] ?? null
                 const imgThumb = imageThumbById[inv.id] ?? null
-                const allowDrag = sortMode === 'manual' && search.trim().length === 0
                 return (
                   <div
                     key={inv.id}
                     className="listItem"
-                    draggable={allowDrag}
-                    onClick={() => toggleSelect(inv.id)}
+                    data-invoice-id={inv.id}
+                    onClick={(e) => {
+                      if (e.detail > 1) return
+                      toggleSelect(inv.id)
+                    }}
+                    onDoubleClick={() => {
+                      if (!isPdf) return
+                      void openPdfViewerFor(inv)
+                    }}
                     onContextMenu={(e) => {
                       setContextId(inv.id)
                       rowMenu.open(e)
                     }}
-                    onDragStart={() => setDragId(inv.id)}
-                    onDragOver={(e) => {
-                      if (!allowDrag) return
-                      e.preventDefault()
-                      dragOverId.current = inv.id
-                    }}
-                    onDrop={(e) => {
-                      if (!allowDrag) return
-                      e.preventDefault()
-                      const from = dragId
-                      const to = dragOverId.current
-                      setDragId(null)
-                      dragOverId.current = null
-                      if (from && to) reorder(from, to)
-                    }}
                     style={{ padding: 10 }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(inv.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleSelect(inv.id)}
-                      />
-                      <span className="note">{isPdf ? 'PDF' : 'FILE'}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(inv.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelect(inv.id)}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => startFolderDrag(e, inv.id)}
+                          onPointerMove={(e) => {
+                            if (!internalDragIdsRef.current || internalDragIdsRef.current.length === 0) return
+                            e.preventDefault()
+                            onFolderDragMove(e.clientX, e.clientY)
+                          }}
+                          onPointerUp={(e) => {
+                            if (!internalDragIdsRef.current || internalDragIdsRef.current.length === 0) return
+                            e.preventDefault()
+                            finishFolderDrag(e.clientX, e.clientY)
+                          }}
+                          onPointerCancel={endInternalDrag}
+                          style={{
+                            cursor: 'grab',
+                            padding: '2px 8px',
+                            borderRadius: 8,
+                            border: '1px solid var(--border)',
+                            background: 'rgba(255,255,255,0.03)',
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                          }}
+                          title="Drag to move to folder"
+                        >
+                          ⋮⋮
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {isPdf ? (
+                          <button
+                            type="button"
+                            className="btnPrimary"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void openPdfViewerFor(inv)
+                            }}
+                            style={{ padding: '6px 10px' }}
+                          >
+                            Open
+                          </button>
+                        ) : null}
+                        <span className="note">{isPdf ? 'PDF' : 'FILE'}</span>
+                      </div>
                     </div>
                     <div style={{ width: '100%', height: 110, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
                       {isImg && imgThumb ? (
-                        <img src={imgThumb} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={imgThumb} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : isPdf && pdfThumb ? (
-                        <img src={pdfThumb} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={pdfThumb} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
                           {rel.toLowerCase().endsWith('.pdf') ? 'PDF' : 'FILE'}
@@ -890,13 +1151,22 @@ export function InvoicesView() {
             <div className="list">
               {filtered.map((inv) => {
                 const allowDrag = sortMode === 'manual' && search.trim().length === 0
+                const rel = String(inv.attachments?.[0]?.storedRelativePath ?? '')
+                const isPdf = isPdfPath(rel)
                 return (
                 <div
                   key={inv.id}
                   className="listItem stdRow"
                   style={{ padding: '10px 12px' }}
                   draggable={allowDrag}
-                  onClick={() => toggleSelect(inv.id)}
+                  onClick={(e) => {
+                    if (e.detail > 1) return
+                    toggleSelect(inv.id)
+                  }}
+                  onDoubleClick={() => {
+                    if (!isPdf) return
+                    void openPdfViewerFor(inv)
+                  }}
                   onContextMenu={(e) => {
                     setContextId(inv.id)
                     rowMenu.open(e)
@@ -942,6 +1212,18 @@ export function InvoicesView() {
                     </div>
                   </div>
                   <div className="rowActions">
+                    {isPdf ? (
+                      <button
+                        type="button"
+                        className="btnPrimary"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void openPdfViewerFor(inv)
+                        }}
+                      >
+                        Open
+                      </button>
+                    ) : null}
                     <button type="button" onClick={(e) => { e.stopPropagation(); openWizard([inv.id], 0) }}>
                       Details
                     </button>
