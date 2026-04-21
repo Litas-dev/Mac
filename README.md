@@ -69,7 +69,7 @@ Have an idea? Found something missing? I actively review and prioritize requests
 
 **How to request:**
 - Open a [GitHub Issue](../../issues) with the `feature-request` label
-- Or email: [your-email@example.com]
+- Or email: [kojankus@gmail.com]
 
 **Current priorities:**
 - Mobile companion app (iOS/Android)
