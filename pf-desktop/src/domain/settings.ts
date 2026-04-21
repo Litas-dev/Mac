@@ -26,6 +26,7 @@ export interface AppSettings {
   reminderDays: number
   startOnLogin: boolean
   shareAnonymousData: boolean
+  enableMenuAnimations: boolean
   customBillCategories: string[]
   customIncomeCategories: string[]
   budgetCategories: string[]
@@ -70,6 +71,7 @@ export function defaultSettings(): AppSettings {
     reminderDays: 7,
     startOnLogin: false,
     shareAnonymousData: true,
+    enableMenuAnimations: false,
     customBillCategories: [],
     customIncomeCategories: [],
     budgetCategories: [],

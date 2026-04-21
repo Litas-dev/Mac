@@ -490,6 +490,19 @@ export function SettingsView() {
             />
           </div>
 
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Menu animations</div>
+              <div className="settingsRowHint">When off, the sidebar stays open (no auto-hide).</div>
+            </div>
+            <input
+              className="settingsSwitch"
+              type="checkbox"
+              checked={settings.enableMenuAnimations}
+              onChange={(e) => updateSettings({ enableMenuAnimations: e.target.checked })}
+            />
+          </div>
+
           {advanced ? (
             <div className="settingsRow">
               <div className="settingsRowText">
