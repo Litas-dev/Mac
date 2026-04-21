@@ -1,20 +1,33 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: ''
+about: Suggest an idea for Kivana
+title: "[Feature] "
+labels: feature-request
 assignees: ''
-
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## What problem are you trying to solve?
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+A clear description of what's frustrating or missing. Example: "I get paid bi-weekly but Income only supports monthly/weekly."
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## What would you like to see?
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+Describe the feature or change. Be specific.
+
+## How would you use it?
+
+Walk through a real scenario. Example: "I open Income, click Add, select 'Bi-weekly', pick start date, and it auto-calculates next pay dates."
+
+## Alternatives you've considered
+
+What workarounds exist today? Why aren't they enough?
+
+## Platform
+
+- [ ] macOS
+- [ ] Windows
+- [ ] Both
+
+## Additional context
+
+Screenshots, mockups, or references to other apps that do this well.
