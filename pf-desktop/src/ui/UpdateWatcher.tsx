@@ -15,6 +15,24 @@ export function UpdateWatcher() {
   useEffect(() => {
     if (!isTauriRuntime()) return
 
+    async function safeConfirm(text: string): Promise<boolean> {
+      try {
+        const { confirm } = await import('@tauri-apps/plugin-dialog')
+        return await confirm(text, { title: 'Update available', kind: 'info' })
+      } catch {
+        return window.confirm(text)
+      }
+    }
+
+    async function safeMessage(text: string): Promise<void> {
+      try {
+        const { message } = await import('@tauri-apps/plugin-dialog')
+        await message(text, { title: 'Update installed', kind: 'info' })
+      } catch {
+        window.alert(text)
+      }
+    }
+
     const tenMinutesMs = 10 * 60 * 1000
     const remainder = Date.now() % tenMinutesMs
     const delayToNextBoundary = remainder === 0 ? tenMinutesMs : tenMinutesMs - remainder
@@ -25,14 +43,10 @@ export function UpdateWatcher() {
       if (promptInFlightRef.current) return
       promptInFlightRef.current = true
       try {
-        const { confirm, message } = await import('@tauri-apps/plugin-dialog')
-        const ok = await confirm(`Kivana ${update.version} is available.\n\nUpdate now?`, {
-          title: 'Update available',
-          kind: 'info',
-        })
+        const ok = await safeConfirm(`Kivana ${update.version} is available.\n\nUpdate now?`)
         if (!ok) return
         await update.downloadAndInstall()
-        await message('Update installed. Restart Kivana to finish.', { title: 'Update installed', kind: 'info' })
+        await safeMessage('Update installed. Restart Kivana to finish.')
       } finally {
         promptInFlightRef.current = false
       }
