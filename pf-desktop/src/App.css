@@ -1621,6 +1621,22 @@
   opacity: 0.9;
 }
 
+.check input[type='checkbox'] {
+  appearance: auto;
+  accent-color: var(--green);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  flex: 0 0 auto;
+}
+
+.check input[type='checkbox']:disabled {
+  opacity: 0.55;
+}
+
 @media (max-width: 860px) {
   .split {
     grid-template-columns: 1fr;
