@@ -16,18 +16,19 @@ export function parseCsvRows(content: string): CsvRow[] {
   let headerIndex = 0
   for (let i = 0; i < Math.min(records.length, 50); i++) {
     const rowStr = records[i]!.join(' ').toLowerCase()
-    const hasDate = rowStr.includes('date') || rowStr.includes('dato')
+    const norm = rowStr.replace(/[_-]+/g, ' ')
+    const hasDate = norm.includes('date') || norm.includes('dato')
     const hasAmount =
-      rowStr.includes('amount') ||
-      rowStr.includes('value') ||
-      rowStr.includes('beløp') ||
-      rowStr.includes('belp') ||
-      rowStr.includes('paid in') ||
-      rowStr.includes('paid out') ||
-      rowStr.includes('money in') ||
-      rowStr.includes('money out') ||
-      rowStr.includes('inn') ||
-      rowStr.includes('ut')
+      norm.includes('amount') ||
+      norm.includes('value') ||
+      norm.includes('beløp') ||
+      norm.includes('belp') ||
+      norm.includes('paid in') ||
+      norm.includes('paid out') ||
+      norm.includes('money in') ||
+      norm.includes('money out') ||
+      norm.includes('inn') ||
+      norm.includes('ut')
     if (hasDate && hasAmount) {
       headerIndex = i
       break
@@ -122,10 +123,13 @@ interface HeaderMap {
 }
 
 function headerMap(headers: string[]): HeaderMap {
+  const normalize = (s: string): string => s.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+  const normalizedHeaders = headers.map(normalize)
   const idx = (names: string[]): number | undefined => {
     for (const n of names) {
-      let i = headers.findIndex((h) => h === n)
-      if (i < 0) i = headers.findIndex((h) => h.includes(n))
+      const nn = normalize(n)
+      let i = normalizedHeaders.findIndex((h) => h === nn)
+      if (i < 0) i = normalizedHeaders.findIndex((h) => h.includes(nn))
       if (i >= 0) return i
     }
     return undefined
@@ -199,6 +203,42 @@ export function parseDate(input?: string): Date | undefined {
   if (!input) return undefined
   const trimmed = input.trim()
   if (!trimmed) return undefined
+
+  const monthMatch = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{2,4})$/)
+  if (monthMatch) {
+    const d = Number(monthMatch[1])
+    const mRaw = monthMatch[2]!.toLowerCase()
+    let y = Number(monthMatch[3])
+    if (y < 100) y += 2000
+    const months: Record<string, number> = {
+      jan: 0,
+      january: 0,
+      feb: 1,
+      february: 1,
+      mar: 2,
+      march: 2,
+      apr: 3,
+      april: 3,
+      may: 4,
+      jun: 5,
+      june: 5,
+      jul: 6,
+      july: 6,
+      aug: 7,
+      august: 7,
+      sep: 8,
+      sept: 8,
+      september: 8,
+      oct: 9,
+      october: 9,
+      nov: 10,
+      november: 10,
+      dec: 11,
+      december: 11,
+    }
+    const m = months[mRaw]
+    if (m != null && Number.isFinite(d) && d >= 1 && d <= 31) return new Date(y, m, d)
+  }
 
   // 1. Try explicit DMY or MDY slash formats first to avoid JS Date fallback mixing them up
   const normalized = trimmed.replace(/\./g, '/')
