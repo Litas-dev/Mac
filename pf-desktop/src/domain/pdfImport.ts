@@ -227,6 +227,8 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       'data',
       'description',
       'transaction',
+      'transactions',
+      'your transactions',
       'type',
       'money in',
       'money out',
@@ -713,6 +715,14 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
     type PendingTx = { dateIso: string; descLines: string[] }
     let pending: PendingTx | null = null
 
+    const isSectionHeadingLine = (input: string) => {
+      const norm = normalizeHeaderToken(input)
+      if (!norm) return true
+      if (norm === 'transactions') return true
+      if (norm === 'your transactions') return true
+      return false
+    }
+
     const appendNoteToLast = (note: string) => {
       const n = note.trim()
       if (!n) return
@@ -747,7 +757,7 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       const desc = cleanCell(extraDesc)
       const descLines = pending ? [...pending.descLines] : []
       if (desc) descLines.push(desc)
-      const combinedDesc = cleanCell(descLines.filter((x) => x.length > 0).join(' '))
+      const combinedDesc = cleanCell(descLines.filter((x) => x.length > 0).filter((x) => !isSectionHeadingLine(x)).join(' '))
       pushTx(dateIso, combinedDesc, amtRaw, [])
     }
 
@@ -759,7 +769,10 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       const moneyOut = isOut ? String(val) : ''
       const moneyIn = !isOut ? String(val) : ''
 
-      const cleaned = [descLine, ...extraNotes].map((x) => cleanCell(x)).filter((x) => x.length > 0)
+      const cleaned = [descLine, ...extraNotes]
+        .map((x) => cleanCell(x))
+        .filter((x) => x.length > 0)
+        .filter((x) => !isSectionHeadingLine(x))
       const mainLines = cleaned.filter((x) => isMainDescriptionLine(x))
       const main = mainLines.length > 0 ? mainLines.join(' ') : cleaned[0] ?? ''
       const notes = cleaned
@@ -829,6 +842,11 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
             .join(' '),
         )
         descLine = allText
+      }
+
+      if (descLine && isSectionHeadingLine(descLine)) {
+        pending = null
+        continue
       }
 
       if (hasAmount && effectiveDate) {
