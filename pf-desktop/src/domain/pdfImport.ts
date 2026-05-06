@@ -714,6 +714,8 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
     let lastDateIso: string | null = null
     type PendingTx = { dateIso: string; descLines: string[] }
     let pending: PendingTx | null = null
+    type PendingAmount = { dateIso: string; amtRaw: string; descLines: string[] }
+    let pendingAmount: PendingAmount | null = null
 
     const isSectionHeadingLine = (input: string) => {
       const norm = normalizeHeaderToken(input)
@@ -759,6 +761,19 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       if (desc) descLines.push(desc)
       const combinedDesc = cleanCell(descLines.filter((x) => x.length > 0).filter((x) => !isSectionHeadingLine(x)).join(' '))
       pushTx(dateIso, combinedDesc, amtRaw, [])
+    }
+
+    const flushPendingAmount = () => {
+      if (!pendingAmount) return
+      const combinedDesc = cleanCell(
+        pendingAmount.descLines
+          .map((x) => cleanCell(x))
+          .filter((x) => x.length > 0)
+          .filter((x) => !isSectionHeadingLine(x))
+          .join(' '),
+      )
+      pushTx(pendingAmount.dateIso, combinedDesc, pendingAmount.amtRaw, [])
+      pendingAmount = null
     }
 
     const pushTx = (dateIso: string, descLine: string, amtRaw: string, extraNotes: string[]) => {
@@ -846,24 +861,40 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
 
       if (descLine && isSectionHeadingLine(descLine)) {
         pending = null
+        pendingAmount = null
         continue
       }
 
       if (hasAmount && effectiveDate) {
+        flushPendingAmount()
         if (pending && pending.dateIso === effectiveDate) {
           finalizePendingWithAmount(effectiveDate, amtRaw, descLine)
           pending = null
         } else {
-          pushTx(effectiveDate, descLine, amtRaw, [])
+          if (descLine) {
+            pushTx(effectiveDate, descLine, amtRaw, [])
+          } else {
+            pendingAmount = { dateIso: effectiveDate, amtRaw, descLines: [] }
+          }
         }
         continue
       }
 
       if (!descLine) continue
 
+      if (pendingAmount && effectiveDate && pendingAmount.dateIso === effectiveDate) {
+        pendingAmount.descLines.push(descLine)
+        continue
+      }
+
       if (isSmallDetailLine(descLine)) {
         if (pending) pending.descLines.push(descLine)
         else appendNoteToLast(descLine)
+        continue
+      }
+
+      if (!dateIso && effectiveDate && out.length > 0) {
+        appendNoteToLast(descLine)
         continue
       }
 
@@ -879,6 +910,7 @@ export async function convertPdfToCsvString(file: File, options?: PdfImportOptio
       }
     }
 
+    flushPendingAmount()
     return out.length ? out : null
   }
 

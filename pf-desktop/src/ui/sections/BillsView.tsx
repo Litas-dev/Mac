@@ -25,6 +25,7 @@ export function BillsView() {
   const { state, dispatch } = useAppStore()
   const selectedId = state.ui.selectedBillId
   const [snoozeDate, setSnoozeDate] = useState<string>('')
+  const [showMore, setShowMore] = useState(false)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<BillCategory | 'all'>('all')
   const [soonestFirst, setSoonestFirst] = useState(true)
@@ -431,53 +432,6 @@ export function BillsView() {
               </div>
 
               <div className="groupBox">
-                <div className="groupTitle">Actions</div>
-                <div className="rowActions">
-                  <button type="button" onClick={markPaidOnDueDate}>
-                    Paid on due date
-                  </button>
-                  <button type="button" onClick={markPaidToday}>
-                    Paid today
-                  </button>
-                  <button type="button" onClick={skipBill}>
-                    Handle later
-                  </button>
-                </div>
-              </div>
-
-              <div className="groupBox">
-                <div className="groupTitle">Snooze</div>
-                <div className="rowActions">
-                  {snoozePresets.map((p) => (
-                    <button key={p.label} type="button" onClick={() => setSnooze(p.date)}>
-                      {p.label}
-                    </button>
-                  ))}
-                  <button type="button" onClick={clearSnooze} disabled={!selected.snoozeUntil}>
-                    Clear
-                  </button>
-                </div>
-                <div className="fieldRow" style={{ marginTop: 8 }}>
-                  <input
-                    type="date"
-                    value={snoozeDate}
-                    onChange={(e) => setSnoozeDate(e.target.value)}
-                    placeholder="YYYY-MM-DD"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!snoozeDate) return
-                      setSnooze(fromDateInputValue(snoozeDate))
-                    }}
-                    disabled={!snoozeDate}
-                  >
-                    Snooze to date
-                  </button>
-                </div>
-              </div>
-
-              <div className="groupBox">
                 <div className="groupTitle">Preferences</div>
                 <div className="fieldRow">
                   <label className="check">
@@ -551,6 +505,80 @@ export function BillsView() {
                   ))
                 )}
               </div>
+
+              <div className="groupBox">
+                <div className="groupTitle">More</div>
+                <div className="rowActions" style={{ flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => setShowMore((v) => !v)}>
+                    {showMore ? 'Hide extra options' : 'Show extra options'}
+                  </button>
+                </div>
+              </div>
+
+              {showMore ? (
+                <>
+                  <div className="groupBox">
+                    <div className="groupTitle">Actions</div>
+                    <div className="rowActions" style={{ flexWrap: 'wrap' }}>
+                      <button type="button" onClick={markPaidOnDueDate}>
+                        Paid on due date
+                      </button>
+                      <button type="button" onClick={markPaidToday}>
+                        Paid today
+                      </button>
+                      <button type="button" onClick={skipBill}>
+                        Handle later
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="groupBox">
+                    <div className="groupTitle">Snooze</div>
+                    <div className="note">
+                      {selected.snoozeUntil ? `Snoozed until ${toDateInputValue(selected.snoozeUntil)}.` : 'Not snoozed.'}
+                    </div>
+                    <div className="rowActions" style={{ flexWrap: 'wrap', marginTop: 8 }}>
+                      {snoozePresets.map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => {
+                            setSnooze(p.date)
+                            setSnoozeDate('')
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearSnooze()
+                          setSnoozeDate('')
+                        }}
+                        disabled={!selected.snoozeUntil}
+                      >
+                        Clear
+                      </button>
+                    </div>
+
+                    <div className="fieldRow" style={{ marginTop: 8 }}>
+                      <input type="date" value={snoozeDate} onChange={(e) => setSnoozeDate(e.target.value)} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!snoozeDate) return
+                          setSnooze(fromDateInputValue(snoozeDate))
+                          setSnoozeDate('')
+                        }}
+                        disabled={!snoozeDate}
+                      >
+                        Snooze to date
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : (
             <div className="empty">Select a bill to edit.</div>

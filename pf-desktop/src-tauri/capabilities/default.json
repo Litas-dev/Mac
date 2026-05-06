@@ -24,6 +24,8 @@
     "autostart:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
+    "notification:default",
+    "notification:allow-notify",
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",

@@ -48,6 +48,8 @@ export function SectionRouter() {
       return <DebtsView />
     case 'reports':
       return <ReportsView />
+    case 'budget':
+      return <ReportsView />
     case 'settings':
       return <SettingsView />
   }

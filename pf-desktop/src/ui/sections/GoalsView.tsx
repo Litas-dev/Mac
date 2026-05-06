@@ -12,6 +12,21 @@ export function GoalsView() {
   const [search, setSearch] = useState('')
   const [addAmount, setAddAmount] = useState(0)
 
+  function daysInMonth(year: number, monthIndex: number): number {
+    return new Date(year, monthIndex + 1, 0).getDate()
+  }
+
+  function advanceMonthlySameDay(from: Date): Date {
+    const y = from.getFullYear()
+    const m = from.getMonth()
+    const day = from.getDate()
+    const nextM = m + 1
+    const y2 = y + Math.floor(nextM / 12)
+    const m2 = ((nextM % 12) + 12) % 12
+    const maxDay = daysInMonth(y2, m2)
+    return new Date(y2, m2, Math.min(day, maxDay), 0, 0, 0, 0)
+  }
+
   const goalsFiltered = useMemo(() => {
     let items = state.goals.filter((g) => !g.archived)
     const q = search.trim().toLowerCase()
@@ -41,6 +56,8 @@ export function GoalsView() {
       name: '',
       targetAmount: { currencyCode: code, value: 0 },
       savedAmount: { currencyCode: code, value: 0 },
+      autoMonthlyAmount: null,
+      autoMonthlyNextDate: null,
       targetDate: null,
       notes: null,
       archived: false,
@@ -257,6 +274,40 @@ export function GoalsView() {
                   <button type="button" onClick={applyAddToSaved} disabled={!Number.isFinite(addAmount) || addAmount === 0}>
                     Apply
                   </button>
+                </div>
+              </div>
+
+              <div className="groupBox">
+                <div className="groupTitle">Monthly auto add</div>
+                <div className="fieldRow">
+                  <label className="field">
+                    <div className="fieldLabel">Amount</div>
+                    <input
+                      type="number"
+                      value={selected.autoMonthlyAmount?.value ?? 0}
+                      onChange={(e) => {
+                        const v = Number(e.target.value)
+                        if (!Number.isFinite(v) || v <= 0) {
+                          updateSelected({ autoMonthlyAmount: null, autoMonthlyNextDate: null })
+                          return
+                        }
+                        const next = selected.autoMonthlyNextDate ?? advanceMonthlySameDay(new Date())
+                        updateSelected({
+                          autoMonthlyAmount: { currencyCode: selected.savedAmount.currencyCode, value: v },
+                          autoMonthlyNextDate: next,
+                        })
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <div className="fieldLabel">Next add date</div>
+                    <input
+                      type="date"
+                      value={selected.autoMonthlyNextDate ? toDateInputValue(selected.autoMonthlyNextDate) : ''}
+                      onChange={(e) => updateSelected({ autoMonthlyNextDate: fromDateInputValue(e.target.value) })}
+                      disabled={!selected.autoMonthlyAmount || (selected.autoMonthlyAmount?.value ?? 0) <= 0}
+                    />
+                  </label>
                 </div>
               </div>
 

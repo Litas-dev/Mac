@@ -1,5 +1,5 @@
 import type { LoadedDatasets } from './localJsonStore'
-import type { Bill, BillAttachment, Income, Invoice, InvoiceAttachment, Payment, Transaction, Goal, Debt } from '../domain/models'
+import type { Bill, BillAttachment, Income, Invoice, InvoiceAttachment, Payment, Transaction, Goal, Debt, Reminder } from '../domain/models'
 import { iso8601NoMillis, parseISO8601 } from '../domain/models'
 import { defaultSettings, migratedBudgetCategories, migratedBudgets, type AppSettings } from '../domain/settings'
 
@@ -40,6 +40,20 @@ export interface DataBackupV3 extends DataBackupHeader {
   debts: unknown[]
 }
 
+export interface DataBackupV4 extends DataBackupHeader {
+  version: 4
+  exportedAt: string
+  settings: AppSettings
+  bills: EncodedBill[]
+  incomes: EncodedIncome[]
+  accounts: unknown[]
+  transactions: EncodedTransaction[]
+  reminders: EncodedReminder[]
+  invoices: EncodedInvoice[]
+  goals: EncodedGoal[]
+  debts: unknown[]
+}
+
 type EncodedPayment = Omit<Payment, 'date'> & { date: string }
 type EncodedBillAttachment = Omit<BillAttachment, 'createdAt'> & { createdAt: string }
 type EncodedBill = Omit<Bill, 'nextDueDate' | 'payments' | 'snoozeUntil' | 'attachments'> & {
@@ -56,7 +70,12 @@ type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'>
 }
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
-type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
+type EncodedReminder = Omit<Reminder, 'when' | 'createdAt' | 'completedAt'> & {
+  when: string
+  createdAt: string
+  completedAt?: string | null
+}
+type EncodedGoal = Omit<Goal, 'targetDate' | 'autoMonthlyNextDate'> & { targetDate?: string | null; autoMonthlyNextDate?: string | null }
 
 function encodePayment(p: Payment): EncodedPayment {
   return { ...p, date: iso8601NoMillis(p.date) }
@@ -144,23 +163,61 @@ function decodeTransaction(x: unknown): Transaction {
   return { ...o, date: parseISO8601(o.date), tags: o.tags ?? [] }
 }
 
+function encodeReminder(r: Reminder): EncodedReminder {
+  return {
+    ...r,
+    when: iso8601NoMillis(r.when),
+    createdAt: iso8601NoMillis(r.createdAt),
+    completedAt: r.completedAt ? iso8601NoMillis(r.completedAt) : r.completedAt ?? null,
+  }
+}
+function decodeReminder(x: unknown): Reminder {
+  const o = x as EncodedReminder
+  const listRaw = (o as any).remindMinutesBeforeList
+  const list =
+    Array.isArray(listRaw) && listRaw.length > 0 ? listRaw.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : null
+  const single = (o as any).remindMinutesBefore == null ? null : Number((o as any).remindMinutesBefore)
+  return {
+    ...o,
+    title: String((o as any).title ?? '').trim(),
+    when: parseISO8601(o.when),
+    createdAt: parseISO8601(o.createdAt),
+    completedAt: o.completedAt ? parseISO8601(o.completedAt) : null,
+    allDay: Boolean((o as any).allDay),
+    recurrence: (o as any).recurrence === 'weekly' || (o as any).recurrence === 'monthly' || (o as any).recurrence === 'yearly' ? (o as any).recurrence : 'once',
+    priority:
+      (o as any).priority === 'low' || (o as any).priority === 'high' || (o as any).priority === 'critical' ? (o as any).priority : 'medium',
+    remindMinutesBefore: single == null || !Number.isFinite(single) ? null : single,
+    remindMinutesBeforeList: list,
+  }
+}
+
 function encodeGoal(g: Goal): EncodedGoal {
-  return { ...g, targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null }
+  return {
+    ...g,
+    targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null,
+    autoMonthlyNextDate: g.autoMonthlyNextDate ? iso8601NoMillis(g.autoMonthlyNextDate) : g.autoMonthlyNextDate ?? null,
+  }
 }
 function decodeGoal(x: unknown): Goal {
   const o = x as EncodedGoal
-  return { ...o, targetDate: o.targetDate ? parseISO8601(o.targetDate) : null }
+  return {
+    ...o,
+    targetDate: o.targetDate ? parseISO8601(o.targetDate) : null,
+    autoMonthlyNextDate: o.autoMonthlyNextDate ? parseISO8601(o.autoMonthlyNextDate) : null,
+  }
 }
 
 export function encodeBackupV3(datasets: LoadedDatasets): string {
-  const payload: DataBackupV3 = {
-    version: 3,
+  const payload: DataBackupV4 = {
+    version: 4,
     exportedAt: iso8601NoMillis(new Date()),
     settings: datasets.settings,
     bills: datasets.bills.map(encodeBill),
     incomes: datasets.incomes.map(encodeIncome),
     accounts: datasets.accounts,
     transactions: datasets.transactions.map(encodeTransaction),
+    reminders: datasets.reminders.map(encodeReminder),
     invoices: datasets.invoices.map(encodeInvoice),
     goals: datasets.goals.map(encodeGoal),
     debts: datasets.debts,
@@ -188,6 +245,7 @@ export function decodeBackupToDatasets(jsonText: string): { version: number; dat
         incomes,
         accounts: [],
         transactions: [],
+        reminders: [],
         invoices: [],
         goals: [],
         debts: [],
@@ -210,6 +268,7 @@ export function decodeBackupToDatasets(jsonText: string): { version: number; dat
         incomes,
         accounts: accounts as any,
         transactions,
+        reminders: [],
         invoices: [],
         goals,
         debts,
@@ -233,6 +292,32 @@ export function decodeBackupToDatasets(jsonText: string): { version: number; dat
         incomes,
         accounts: accounts as any,
         transactions,
+        reminders: [],
+        invoices,
+        goals,
+        debts,
+      },
+    }
+  }
+
+  if (version === 4) {
+    const bills: Bill[] = Array.isArray(raw?.bills) ? raw.bills.map(decodeBill) : []
+    const incomes: Income[] = Array.isArray(raw?.incomes) ? raw.incomes.map(decodeIncome) : []
+    const transactions: Transaction[] = Array.isArray(raw?.transactions) ? raw.transactions.map(decodeTransaction) : []
+    const reminders: Reminder[] = Array.isArray(raw?.reminders) ? raw.reminders.map(decodeReminder) : []
+    const invoices: Invoice[] = Array.isArray(raw?.invoices) ? raw.invoices.map(decodeInvoice) : []
+    const goals: Goal[] = Array.isArray(raw?.goals) ? raw.goals.map(decodeGoal) : []
+    const debts: Debt[] = Array.isArray(raw?.debts) ? (raw.debts as Debt[]) : []
+    const accounts = Array.isArray(raw?.accounts) ? raw.accounts : []
+    return {
+      version,
+      datasets: {
+        settings: base,
+        bills,
+        incomes,
+        accounts: accounts as any,
+        transactions,
+        reminders,
         invoices,
         goals,
         debts,

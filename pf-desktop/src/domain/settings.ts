@@ -1,4 +1,4 @@
-import type { Bill, BillCategory } from './models'
+import type { Bill, BillCategory, Transaction } from './models'
 
 export type AIProvider = 'local' | 'external'
 
@@ -20,8 +20,16 @@ export type AccentColor =
   | 'indigo'
   | 'gray'
 
+export type JurisdictionCode = 'UK' | 'NO'
+
+export type LanguageCode = 'en' | 'no' | 'de' | 'pl' | 'es' | 'fr'
+
+export const AI_FEATURE_ENABLED = false
+
 export interface AppSettings {
+  language: LanguageCode
   displayCurrencyCode: string
+  defaultJurisdiction: JurisdictionCode
   enableNotifications: boolean
   reminderDays: number
   startOnLogin: boolean
@@ -66,7 +74,9 @@ export type ImportCategoryRule = {
 
 export function defaultSettings(): AppSettings {
   return {
-    displayCurrencyCode: 'NOK',
+    language: 'en',
+    displayCurrencyCode: 'GBP',
+    defaultJurisdiction: 'UK',
     enableNotifications: true,
     reminderDays: 7,
     startOnLogin: false,
@@ -153,7 +163,7 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-function isBillCategory(x: string): x is BillCategory {
+export function isBillCategory(x: string): x is BillCategory {
   return (
     x === 'housing' ||
     x === 'utilities' ||
@@ -163,4 +173,62 @@ function isBillCategory(x: string): x is BillCategory {
     x === 'transport' ||
     x === 'other'
   )
+}
+
+export function normalizeCategoryLabel(label: string): string {
+  return String(label ?? '').replace(/\s+/g, ' ').trim()
+}
+
+export function expenseCategoryKey(params: { category?: BillCategory | null; customCategoryName?: string | null }): string {
+  const custom = normalizeCategoryLabel(params.customCategoryName ?? '')
+  if (custom) return `custom:${custom.toLowerCase()}`
+  const cat = params.category ?? 'other'
+  return `builtin:${cat}`
+}
+
+export function expenseCategoryDisplayName(params: { category?: BillCategory | null; customCategoryName?: string | null }): string {
+  const custom = normalizeCategoryLabel(params.customCategoryName ?? '')
+  if (custom) return custom
+  const cat = params.category ?? 'other'
+  return capitalize(cat)
+}
+
+export function expenseCategoryFromSummaryCategory(raw: string | null | undefined): { key: string; label: string } {
+  const s = normalizeCategoryLabel(raw ?? '')
+  if (!s) return { key: 'builtin:other', label: 'Other' }
+  if (isBillCategory(s)) return { key: `builtin:${s}`, label: capitalize(s) }
+  if (s.toLowerCase() === 'expense' || s.toLowerCase() === 'expenses') return { key: 'builtin:other', label: 'Other' }
+  return { key: `custom:${s.toLowerCase()}`, label: s }
+}
+
+export function expenseCategoryFromTransaction(t: Transaction): { key: string; label: string } {
+  if (t.kind !== 'expense') return { key: 'builtin:other', label: 'Other' }
+  const custom = normalizeCategoryLabel(t.customCategoryName ?? '')
+  if (custom) return { key: `custom:${custom.toLowerCase()}`, label: custom }
+  const cat = (t.category ?? 'other') as any
+  if (typeof cat === 'string' && isBillCategory(cat)) return { key: `builtin:${cat}`, label: capitalize(cat) }
+  return { key: 'builtin:other', label: 'Other' }
+}
+
+export function getBudgetAmountForCategory(settings: AppSettings, key: string): number {
+  const raw = Number((settings.monthlyBudgets ?? {})[key] ?? 0)
+  if (Number.isFinite(raw)) return raw
+  return 0
+}
+
+export function getBudgetAmountForCustomCategory(settings: AppSettings, customLabel: string): number {
+  const label = normalizeCategoryLabel(customLabel)
+  if (!label) return 0
+  const direct = getBudgetAmountForCategory(settings, `custom:${label}`)
+  if (direct !== 0) return direct
+  const target = label.toLowerCase()
+  const budgets = settings.monthlyBudgets ?? {}
+  for (const [k, v] of Object.entries(budgets)) {
+    if (!k.startsWith('custom:')) continue
+    const stored = normalizeCategoryLabel(k.slice('custom:'.length))
+    if (stored.toLowerCase() !== target) continue
+    const n = Number(v ?? 0)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
 }

@@ -44,7 +44,10 @@ export function loadSidebarCollapsedGroups(): string[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.map((x) => String(x ?? '').trim()).filter((x) => x.length > 0)
+    return parsed
+      .map((x) => String(x ?? '').trim())
+      .map((x) => (x === 'Core' ? 'Accountant' : x))
+      .filter((x) => x.length > 0)
   } catch {
     return []
   }

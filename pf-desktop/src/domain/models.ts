@@ -112,11 +112,28 @@ export interface Transaction {
   relatedIncomeId?: UUID | null
 }
 
+export interface Reminder {
+  id: UUID
+  title: string
+  when: Date
+  allDay: boolean
+  recurrence: Recurrence
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  notes?: string | null
+  remindMinutesBefore?: number | null
+  remindMinutesBeforeList?: number[] | null
+  completedAt?: Date | null
+  personId?: UUID | null
+  createdAt: Date
+}
+
 export interface Goal {
   id: UUID
   name: string
   targetAmount: DecimalAmount
   savedAmount: DecimalAmount
+  autoMonthlyAmount?: DecimalAmount | null
+  autoMonthlyNextDate?: Date | null
   targetDate?: Date | null
   notes?: string | null
   archived: boolean

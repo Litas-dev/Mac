@@ -13,6 +13,7 @@ import {
   type Invoice,
   type InvoiceAttachment,
   type Payment,
+  type Reminder,
 } from '../domain/models'
 import type { AppSettings } from '../domain/settings'
 import { normalizePeopleSettings } from '../domain/people'
@@ -51,6 +52,7 @@ export async function loadAllFromTauriFiles(fallbackSettings: AppSettings): Prom
     incomes: await loadArrayFromTauriFiles('incomes', decodeIncome),
     accounts: await loadArrayFromTauriFiles('accounts', decodeAccount),
     transactions: txLoaded.transactions,
+    reminders: await loadArrayFromTauriFiles('reminders', decodeReminder),
     invoices: await loadArrayFromTauriFiles('invoices', decodeInvoice),
     goals: await loadArrayFromTauriFiles('goals', decodeGoal),
     debts: await loadArrayFromTauriFiles('debts', decodeDebt),
@@ -68,6 +70,7 @@ export async function saveAllToTauriFiles(data: LoadedDatasets): Promise<void> {
   await saveArrayToTauriFiles('incomes', data.incomes, encodeIncome)
   await saveArrayToTauriFiles('accounts', data.accounts, encodeAccount)
   await saveTransactionsForSettingsToTauriFiles(settingsWithCounts, data.transactions)
+  await saveArrayToTauriFiles('reminders', data.reminders, encodeReminder)
   await saveArrayToTauriFiles('invoices', data.invoices, encodeInvoice)
   await saveArrayToTauriFiles('goals', data.goals, encodeGoal)
   await saveArrayToTauriFiles('debts', data.debts, encodeDebt)
@@ -92,7 +95,7 @@ async function loadSettingsFromTauriFiles(fallback: AppSettings): Promise<AppSet
   if (!raw) return fallback
   try {
     const v = safeParseJSON(raw)
-    if (v && typeof v === 'object') return v as AppSettings
+    if (v && typeof v === 'object') return { ...fallback, ...(v as any) } as AppSettings
     return fallback
   } catch {
     await preserveCorrupt(name)
@@ -142,7 +145,12 @@ type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'>
 }
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
-type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
+type EncodedReminder = Omit<Reminder, 'when' | 'createdAt' | 'completedAt'> & {
+  when: string
+  createdAt: string
+  completedAt?: string | null
+}
+type EncodedGoal = Omit<Goal, 'targetDate' | 'autoMonthlyNextDate'> & { targetDate?: string | null; autoMonthlyNextDate?: string | null }
 type EncodedTransactionsEnvelope = { version: 2; byPerson: Record<string, EncodedTransaction[]> }
 
 function encodePayment(p: Payment): EncodedPayment {
@@ -236,6 +244,35 @@ function encodeTransaction(t: Transaction): EncodedTransaction {
 function decodeTransaction(x: unknown): Transaction {
   const o = x as EncodedTransaction
   return { ...o, date: parseISO8601(o.date), tags: o.tags ?? [] }
+}
+
+function encodeReminder(r: Reminder): EncodedReminder {
+  return {
+    ...r,
+    when: iso8601NoMillis(r.when),
+    createdAt: iso8601NoMillis(r.createdAt),
+    completedAt: r.completedAt ? iso8601NoMillis(r.completedAt) : r.completedAt ?? null,
+  }
+}
+function decodeReminder(x: unknown): Reminder {
+  const o = x as EncodedReminder
+  const listRaw = (o as any).remindMinutesBeforeList
+  const list =
+    Array.isArray(listRaw) && listRaw.length > 0 ? listRaw.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : null
+  const single = (o as any).remindMinutesBefore == null ? null : Number((o as any).remindMinutesBefore)
+  return {
+    ...o,
+    title: String((o as any).title ?? '').trim(),
+    when: parseISO8601(o.when),
+    createdAt: parseISO8601(o.createdAt),
+    completedAt: o.completedAt ? parseISO8601(o.completedAt) : null,
+    allDay: Boolean((o as any).allDay),
+    recurrence: (o as any).recurrence === 'weekly' || (o as any).recurrence === 'monthly' || (o as any).recurrence === 'yearly' ? (o as any).recurrence : 'once',
+    priority:
+      (o as any).priority === 'low' || (o as any).priority === 'high' || (o as any).priority === 'critical' ? (o as any).priority : 'medium',
+    remindMinutesBefore: single == null || !Number.isFinite(single) ? null : single,
+    remindMinutesBeforeList: list,
+  }
 }
 
 async function parseEncodedTransactionsRawFromTauriFiles(): Promise<unknown> {
@@ -348,11 +385,19 @@ async function saveTransactionsForSettingsToTauriFiles(settings: AppSettings, ac
 }
 
 function encodeGoal(g: Goal): EncodedGoal {
-  return { ...g, targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null }
+  return {
+    ...g,
+    targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null,
+    autoMonthlyNextDate: g.autoMonthlyNextDate ? iso8601NoMillis(g.autoMonthlyNextDate) : g.autoMonthlyNextDate ?? null,
+  }
 }
 function decodeGoal(x: unknown): Goal {
   const o = x as EncodedGoal
-  return { ...o, targetDate: o.targetDate ? parseISO8601(o.targetDate) : null }
+  return {
+    ...o,
+    targetDate: o.targetDate ? parseISO8601(o.targetDate) : null,
+    autoMonthlyNextDate: o.autoMonthlyNextDate ? parseISO8601(o.autoMonthlyNextDate) : null,
+  }
 }
 
 function encodeDebt(d: Debt): Debt {

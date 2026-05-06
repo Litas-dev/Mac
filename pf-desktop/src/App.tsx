@@ -14,6 +14,9 @@ import { LoginModal } from './ui/LoginModal'
 import { normalizePeopleSettings } from './domain/people'
 import { isAdvancedAccount } from './licensing/licenseGates'
 import type { Bill, Income } from './domain/models'
+import type { LanguageCode } from './domain/settings'
+import { AI_FEATURE_ENABLED } from './domain/settings'
+import { t } from './ui/i18n'
 
 function MainApp() {
   const store = useAppStore()
@@ -27,8 +30,8 @@ function MainApp() {
   const peopleSettings = normalizePeopleSettings(state.settings as any)
   const activePerson =
     advanced && peopleSettings.peopleEnabled ? peopleSettings.people.find((p) => p.id === peopleSettings.activePersonId) ?? null : null
-  const sectionTitle = titleForSection(state.ui.section)
-  const showCommandBar = state.ui.section === 'bills'
+  const sectionTitle = titleForSection(state.ui.section, state.settings.language)
+  const showCommandBar = AI_FEATURE_ENABLED && state.ui.section === 'bills'
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const quickAddButtonRef = useRef<HTMLButtonElement | null>(null)
   const [quickAddPos, setQuickAddPos] = useState<{ left: number; top: number; width: number } | null>(null)
@@ -152,14 +155,14 @@ function MainApp() {
                   </button>
                 )
               ) : null}
+              <button type="button" className="toolbarPlus" onClick={toggleQuickAdd} ref={quickAddButtonRef}>
+                +
+              </button>
             </div>
             {showCommandBar ? <CommandBar /> : <div />}
             <div className="toolbarRight">
               {sectionTitle ? <div className="toolbarTitle">{sectionTitle}</div> : null}
               {activePerson ? <span className="personBadge">{activePerson.name}</span> : null}
-              <button type="button" className="toolbarPlus" onClick={toggleQuickAdd} ref={quickAddButtonRef}>
-                +
-              </button>
             </div>
           </div>
         </header>
@@ -168,14 +171,14 @@ function MainApp() {
             <div className="popoverOverlay" onMouseDown={closeQuickAdd} />
             <div className="popoverPanel" style={{ left: quickAddPos.left, top: quickAddPos.top, right: 'auto', width: quickAddPos.width }}>
               <div className="groupTitle" style={{ marginBottom: 8 }}>
-                Create
+                {t(state.settings.language, 'app.quickAdd.title', 'Create')}
               </div>
               <div className="rowActions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                 <button type="button" onClick={createBillFromTopBar}>
-                  New Bill
+                  {t(state.settings.language, 'app.quickAdd.newBill', 'New Bill')}
                 </button>
                 <button type="button" onClick={createIncomeFromTopBar}>
-                  New Income
+                  {t(state.settings.language, 'app.quickAdd.newIncome', 'New Income')}
                 </button>
               </div>
             </div>
@@ -190,11 +193,51 @@ function MainApp() {
 }
 
 function App() {
+  const auth = useAuth()
   const isPdfViewerWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pdfViewer') === '1'
+  if (!auth.ready) {
+    return (
+      <div className="shell" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
+        <div className="note">Loading…</div>
+      </div>
+    )
+  }
+  if (!auth.session) {
+    return <LockedScreen isPdfViewerWindow={isPdfViewerWindow} />
+  }
   return isPdfViewerWindow ? <PdfViewerWindow /> : <MainApp />
 }
 
 export default App
+
+function LockedScreen(props: { isPdfViewerWindow: boolean }) {
+  const auth = useAuth()
+
+  useEffect(() => {
+    if (!auth.ready) return
+    if (auth.session) return
+    auth.setOpenLogin(true)
+  }, [auth])
+
+  return (
+    <div className="shell" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div className="modal reconcileModal" style={{ width: 'min(560px, calc(100vw - 32px))' }}>
+        <div className="modalTitle">Sign in required</div>
+        <div className="note" style={{ marginTop: 0 }}>
+          {props.isPdfViewerWindow
+            ? 'Please sign in to view attachments.'
+            : 'Please sign in to access the app. Your available features will match your subscription.'}
+        </div>
+        <div className="modalActions">
+          <button type="button" onClick={() => auth.setOpenLogin(true)}>
+            Sign in
+          </button>
+        </div>
+      </div>
+      <LoginModal />
+    </div>
+  )
+}
 
 function PdfViewerWindow() {
   const [title, setTitle] = useState('PDF')
@@ -692,36 +735,38 @@ function PdfSinglePage(props: {
   )
 }
 
-function titleForSection(section: string): string {
+function titleForSection(section: string, language: LanguageCode): string {
   switch (section) {
     case 'dashboard':
-      return 'Overview'
+      return t(language, 'nav.dashboard', 'Dashboard')
+    case 'budget':
+      return t(language, 'nav.budget', 'Budget')
     case 'calendar':
-      return 'Calendar'
+      return t(language, 'nav.calendar', 'Calendar')
     case 'bills':
-      return 'Bills'
+      return t(language, 'sidebar.group.bills', 'Bills')
     case 'income':
-      return 'Income'
+      return t(language, 'nav.income', 'Income')
     case 'dueSoon':
-      return 'Due Soon'
+      return t(language, 'nav.dueSoon', 'Due Soon')
     case 'deferred':
-      return 'Deferred'
+      return t(language, 'nav.deferred', 'Deferred')
     case 'paidRecently':
-      return 'Paid Recently'
+      return t(language, 'nav.paidRecently', 'Paid Recently')
     case 'accounts':
-      return 'Accounts'
+      return t(language, 'nav.accounts', 'Accounts')
     case 'transactions':
       return ''
     case 'invoices':
-      return 'Files'
+      return t(language, 'nav.files', 'Files')
     case 'goals':
-      return 'Goals'
+      return t(language, 'nav.goals', 'Goals')
     case 'debts':
-      return 'Debts'
+      return t(language, 'nav.debts', 'Debts')
     case 'reports':
-      return 'Reports'
+      return t(language, 'nav.reports', 'Reports')
     case 'settings':
-      return 'Settings'
+      return t(language, 'nav.settings', 'Settings')
     default:
       return 'Kivana'
   }

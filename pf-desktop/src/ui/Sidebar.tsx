@@ -10,12 +10,14 @@ import { isTauriRuntime, deletePersonTransactionsFromTauriFiles } from '../stora
 import { deletePersonTransactionsFromLocalStorage } from '../storage/localJsonStore'
 import { currency } from '../domain/finance'
 import { loadSidebarCollapsedGroups, saveSidebarCollapsedGroups } from '../storage/userPrefs'
+import { t } from './i18n'
 
 export function Sidebar(props: { onHoverChange?: (expanded: boolean) => void }) {
   const { state, dispatch } = useAppStore()
   const auth = useAuth()
   const advanced = useMemo(() => isAdvancedAccount(auth.entitlements), [auth.entitlements])
-  const groups = useMemo(() => buildSidebar(state, advanced), [advanced, state])
+  const lang = state.settings.language
+  const groups = useMemo(() => buildSidebar(state, advanced, lang), [advanced, lang, state])
   const settings = useMemo(() => normalizePeopleSettings(state.settings), [state.settings])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set(loadSidebarCollapsedGroups()))
   const [peopleModalOpen, setPeopleModalOpen] = useState(false)
@@ -143,7 +145,12 @@ export function Sidebar(props: { onHoverChange?: (expanded: boolean) => void }) 
           return (
           <div key={g.title} className="sbGroup">
             <div className="sbGroupTitleRow">
-              <button type="button" className="sbGroupTitleBtn" onClick={() => toggleGroup(g.title)} title={isCollapsed ? 'Show' : 'Hide'}>
+              <button
+                type="button"
+                className="sbGroupTitleBtn"
+                onClick={() => toggleGroup(g.title)}
+                title={isCollapsed ? t(lang, 'sidebar.tooltip.show', 'Show') : t(lang, 'sidebar.tooltip.hide', 'Hide')}
+              >
                 <span className="sbGroupTitleText">{g.title}</span>
                 <span className="sbGroupTitleCaret">{isCollapsed ? '▸' : '▾'}</span>
               </button>
@@ -176,9 +183,9 @@ export function Sidebar(props: { onHoverChange?: (expanded: boolean) => void }) 
                 type="button"
                 className="sbGroupTitleBtn"
                 onClick={() => toggleGroup('People')}
-                title={collapsedGroups.has('People') ? 'Show' : 'Hide'}
+                title={collapsedGroups.has('People') ? t(lang, 'sidebar.tooltip.show', 'Show') : t(lang, 'sidebar.tooltip.hide', 'Hide')}
               >
-                <span className="sbGroupTitleText">People</span>
+                <span className="sbGroupTitleText">{t(lang, 'sidebar.group.people', 'People')}</span>
                 <span className="sbGroupTitleCaret">{collapsedGroups.has('People') ? '▸' : '▾'}</span>
               </button>
             </div>

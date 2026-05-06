@@ -2,9 +2,8 @@ import { useMemo, useState } from 'react'
 import { useAppStore } from '../app/appStore'
 import { setSection } from '../app/AppProvider'
 import type { Account, Bill, Income } from '../domain/models'
-import type { AIProvider, AppSettings } from '../domain/settings'
 
-type Step = 'welcome' | 'accounts' | 'bills' | 'income' | 'ai' | 'finish'
+type Step = 'welcome' | 'accounts' | 'bills' | 'income' | 'finish'
 
 export function OnboardingModal() {
   const { state, dispatch } = useAppStore()
@@ -67,22 +66,6 @@ export function OnboardingModal() {
     dispatch(setSection('income'))
   }
 
-  function updateSettings(patch: Partial<AppSettings>) {
-    dispatch({
-      type: 'data/replaceAll',
-      data: {
-        settings: { ...state.settings, ...patch },
-        bills: state.bills,
-        incomes: state.incomes,
-        accounts: state.accounts,
-        transactions: state.transactions,
-        invoices: state.invoices,
-        goals: state.goals,
-        debts: state.debts,
-      },
-    })
-  }
-
   function finish() {
     dispatch({ type: 'ui/completeOnboarding' })
     dispatch(setSection('dashboard'))
@@ -142,33 +125,6 @@ export function OnboardingModal() {
             <div className="modalActions">
               <button type="button" onClick={addIncome}>
                 Add income
-              </button>
-              <button type="button" onClick={() => setStep('ai')}>
-                Next
-              </button>
-            </div>
-          </>
-        ) : null}
-
-        {step === 'ai' ? (
-          <>
-            <div className="modalTitle">Step 4: AI (optional)</div>
-            <div className="note">
-              Choose Local (Ollama) to keep everything on-device, or External if you want to use an API key.
-            </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <div className="fieldLabel">Provider</div>
-              <select
-                value={state.settings.aiProvider as AIProvider}
-                onChange={(e) => updateSettings({ aiProvider: e.target.value as AIProvider })}
-              >
-                <option value="local">Local (Ollama)</option>
-                <option value="external">External</option>
-              </select>
-            </div>
-            <div className="modalActions">
-              <button type="button" onClick={() => dispatch(setSection('settings'))}>
-                Open Settings
               </button>
               <button type="button" onClick={() => setStep('finish')}>
                 Next

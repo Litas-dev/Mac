@@ -153,8 +153,16 @@ export interface YearSummary {
   billDetails: SummaryItem[]
 }
 
-export function calculateYearSummary(params: { year: number; startMonth?: number; bills: Bill[]; incomes: Income[]; transactions?: Transaction[] }): YearSummary {
-  const { year, startMonth = 0, bills, incomes, transactions = [] } = params
+export function calculateYearSummary(params: {
+  year: number
+  startMonth?: number
+  endYear?: number
+  endMonth?: number
+  bills: Bill[]
+  incomes: Income[]
+  transactions?: Transaction[]
+}): YearSummary {
+  const { year, startMonth = 0, endYear, endMonth, bills, incomes, transactions = [] } = params
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const months: YearMonthSummary[] = []
@@ -162,12 +170,18 @@ export function calculateYearSummary(params: { year: number; startMonth?: number
   const allIncomeDetails: SummaryItem[] = []
   const allBillDetails: SummaryItem[] = []
 
-  for (let i = 0; i < 12; i++) {
-    const mDate = new Date(year, startMonth + i, 1)
+  const start = new Date(year, startMonth, 1)
+  const end = typeof endYear === 'number' && typeof endMonth === 'number' ? new Date(endYear, endMonth, 1) : null
+  const monthCountRaw = end ? (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1 : 12
+  const monthCount = Math.min(Math.max(1, monthCountRaw), 240)
+  const showYearSuffix = end ? end.getFullYear() !== start.getFullYear() : startMonth !== 0
+
+  for (let i = 0; i < monthCount; i++) {
+    const mDate = new Date(start.getFullYear(), start.getMonth() + i, 1)
     const mYear = mDate.getFullYear()
     const mMonth = mDate.getMonth()
     
-    const mName = startMonth === 0 ? monthNames[mMonth]! : `${monthNames[mMonth]} '${mYear.toString().slice(2)}`
+    const mName = showYearSuffix ? `${monthNames[mMonth]} '${mYear.toString().slice(2)}` : monthNames[mMonth]!
     
     const mSum = calculateMonthSummary({ month: mDate, bills, incomes, transactions })
     
@@ -193,8 +207,8 @@ export function calculateYearSummary(params: { year: number; startMonth?: number
   const totalBills = months.reduce((acc, m) => acc + m.bills, 0)
 
   return {
-    startYear: year,
-    startMonth,
+    startYear: start.getFullYear(),
+    startMonth: start.getMonth(),
     income: totalIncome,
     bills: totalBills,
     net: totalIncome - totalBills,
@@ -203,4 +217,3 @@ export function calculateYearSummary(params: { year: number; startMonth?: number
     billDetails: allBillDetails,
   }
 }
-

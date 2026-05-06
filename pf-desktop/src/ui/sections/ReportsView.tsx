@@ -4,7 +4,8 @@ import { currency } from '../../domain/finance'
 import { calculateMonthSummary, calculateYearSummary } from '../../domain/reports'
 import { isTauriRuntime } from '../../storage/tauriJsonStore'
 import { normalizePeopleSettings, visibleTransactions } from '../../domain/people'
-import type { Invoice, InvoiceAttachment } from '../../domain/models'
+import type { BillCategory, Invoice, InvoiceAttachment } from '../../domain/models'
+import { expenseCategoryFromSummaryCategory, expenseCategoryFromTransaction, getBudgetAmountForCategory, getBudgetAmountForCustomCategory, normalizeCategoryLabel } from '../../domain/settings'
 import {
   BarChart,
   Bar,
@@ -38,6 +39,8 @@ export function ReportsView() {
   const personTransactions = useMemo(() => visibleTransactions(state.transactions, state.settings), [state.settings, state.transactions])
   const peopleSettings = useMemo(() => normalizePeopleSettings(state.settings as any), [state.settings])
   const PieAny: any = Pie
+  const mode: 'reports' | 'budget' = state.ui.section === 'budget' ? 'budget' : 'reports'
+  const [autoRange, setAutoRange] = useState(true)
   const [yearStr, setYearStr] = useState(() => {
     return String(new Date().getFullYear())
   })
@@ -48,6 +51,39 @@ export function ReportsView() {
   const [showIncomePie, setShowIncomePie] = useState(true)
   const [showExpensePie, setShowExpensePie] = useState(true)
   const [savingPdf, setSavingPdf] = useState(false)
+  const [budgetMonth, setBudgetMonth] = useState(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    return `${y}-${m}`
+  })
+  const [newBudgetCategory, setNewBudgetCategory] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'reports') return
+    const dates: Date[] = []
+    for (const t of personTransactions) dates.push(t.date)
+    for (const b of state.bills) {
+      for (const p of b.payments ?? []) dates.push(p.date)
+    }
+    for (const i of state.incomes) {
+      for (const r of i.receipts ?? []) dates.push(r.date)
+    }
+
+    const earliest = dates.reduce<Date | null>((acc, d) => {
+      if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return acc
+      if (!acc) return d
+      return d.getTime() < acc.getTime() ? d : acc
+    }, null)
+
+    const start = earliest ? new Date(earliest.getFullYear(), earliest.getMonth(), 1) : new Date(new Date().getFullYear(), 0, 1)
+    setYearStr(String(start.getFullYear()))
+    setStartMonthStr(String(start.getMonth()))
+    setSelectedMonthIndex(null)
+    setActiveIncomeSlice(null)
+    setActiveExpenseSlice(null)
+    setAutoRange(true)
+  }, [mode, state.ui.section])
 
   const selectedYear = useMemo(() => {
     const y = Number(yearStr)
@@ -64,14 +100,19 @@ export function ReportsView() {
   }, [selectedYear, selectedStartMonth])
 
   const yearSummary = useMemo(() => {
+    const now = new Date()
+    const endYear = now.getFullYear()
+    const endMonth = now.getMonth()
     return calculateYearSummary({
       year: selectedYear,
       startMonth: selectedStartMonth,
+      endYear: autoRange ? endYear : undefined,
+      endMonth: autoRange ? endMonth : undefined,
       bills: state.bills,
       incomes: state.incomes,
       transactions: personTransactions,
     })
-  }, [personTransactions, selectedYear, selectedStartMonth, state.bills, state.incomes])
+  }, [autoRange, personTransactions, selectedYear, selectedStartMonth, state.bills, state.incomes])
 
   const selectedMonthSummary = useMemo(() => {
     if (selectedMonthIndex === null) return null
@@ -99,14 +140,13 @@ export function ReportsView() {
   const pieData = useMemo(() => {
     const details = selectedMonthIndex !== null ? selectedMonthSummary?.billDetails : yearSummary?.billDetails
     if (!details) return []
-    const map = new Map<string, number>()
+    const map = new Map<string, { name: string; value: number }>()
     for (const b of details) {
-      const cat = b.category || 'other'
-      const name = cat.charAt(0).toUpperCase() + cat.slice(1)
-      map.set(name, (map.get(name) ?? 0) + b.amount)
+      const cat = expenseCategoryFromSummaryCategory(b.category)
+      const cur = map.get(cat.key) ?? { name: cat.label, value: 0 }
+      map.set(cat.key, { name: cur.name, value: cur.value + b.amount })
     }
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
+    return Array.from(map.values())
       .filter((x) => x.value > 0)
       .sort((a, b) => b.value - a.value)
   }, [selectedMonthIndex, selectedMonthSummary, yearSummary])
@@ -128,6 +168,94 @@ export function ReportsView() {
   const incomePieTotal = useMemo(() => incomePieData.reduce((acc, x) => acc + x.value, 0), [incomePieData])
   const expensePieTotal = useMemo(() => pieData.reduce((acc, x) => acc + x.value, 0), [pieData])
 
+  function parseMonthValue(value: string): Date {
+    const v = String(value ?? '').trim()
+    const m = v.match(/^(\d{4})-(\d{2})$/)
+    if (!m) return new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    const y = Number(m[1])
+    const mi = Number(m[2]) - 1
+    if (!Number.isFinite(y) || !Number.isFinite(mi)) return new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    return new Date(y, Math.min(11, Math.max(0, mi)), 1)
+  }
+
+  function sameMonth(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
+  }
+
+  const budgetMonthDate = useMemo(() => parseMonthValue(budgetMonth), [budgetMonth])
+
+  const budgetSpentByCategory = useMemo(() => {
+    const map = new Map<string, { label: string; spent: number }>()
+    for (const t of personTransactions) {
+      if (t.kind !== 'expense') continue
+      if (!sameMonth(t.date, budgetMonthDate)) continue
+      const cat = expenseCategoryFromTransaction(t)
+      const cur = map.get(cat.key) ?? { label: cat.label, spent: 0 }
+      map.set(cat.key, { label: cur.label, spent: cur.spent + t.amount.value })
+    }
+    return map
+  }, [budgetMonthDate, personTransactions])
+
+  const budgetRows = useMemo(() => {
+    const builtin: BillCategory[] = ['housing', 'utilities', 'subscriptions', 'insurance', 'taxes', 'transport', 'other']
+    const customLabels = Array.isArray(state.settings.budgetCategories) ? state.settings.budgetCategories : []
+    const rows: Array<{ key: string; label: string; assigned: number; spent: number; available: number; kind: 'builtin' | 'custom' }> = []
+
+    for (const c of builtin) {
+      const key = `builtin:${c}`
+      const assigned = getBudgetAmountForCategory(state.settings, key)
+      const spent = budgetSpentByCategory.get(key)?.spent ?? 0
+      rows.push({ key, label: c.charAt(0).toUpperCase() + c.slice(1), assigned, spent, available: assigned - spent, kind: 'builtin' })
+    }
+
+    for (const raw of customLabels) {
+      const label = normalizeCategoryLabel(raw)
+      if (!label) continue
+      const key = `custom:${label}`
+      const assigned = getBudgetAmountForCustomCategory(state.settings, label)
+      const spent = budgetSpentByCategory.get(`custom:${label.toLowerCase()}`)?.spent ?? 0
+      rows.push({ key, label, assigned, spent, available: assigned - spent, kind: 'custom' })
+    }
+
+    return rows
+  }, [budgetSpentByCategory, state.settings])
+
+  function updateMonthlyBudgets(nextBudgets: Record<string, number>) {
+    dispatch({ type: 'settings/update', patch: { monthlyBudgets: nextBudgets } })
+  }
+
+  function updateBudgetCategories(next: string[]) {
+    dispatch({ type: 'settings/update', patch: { budgetCategories: next } })
+  }
+
+  function setBudgetAmount(key: string, value: number) {
+    const budgets = { ...(state.settings.monthlyBudgets ?? {}) }
+    budgets[key] = Number.isFinite(value) ? value : 0
+    updateMonthlyBudgets(budgets)
+  }
+
+  function addCustomBudgetCategory() {
+    const label = normalizeCategoryLabel(newBudgetCategory)
+    if (!label) return
+    const existing = Array.isArray(state.settings.budgetCategories) ? state.settings.budgetCategories : []
+    const lower = label.toLowerCase()
+    if (existing.some((x) => normalizeCategoryLabel(x).toLowerCase() === lower)) {
+      setNewBudgetCategory('')
+      return
+    }
+    updateBudgetCategories([...existing, label].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
+    const budgets = { ...(state.settings.monthlyBudgets ?? {}) }
+    const k = `custom:${label}`
+    if (budgets[k] == null) budgets[k] = 0
+    updateMonthlyBudgets(budgets)
+    setNewBudgetCategory('')
+  }
+
+  function removeCustomBudgetCategory(label: string) {
+    const existing = Array.isArray(state.settings.budgetCategories) ? state.settings.budgetCategories : []
+    updateBudgetCategories(existing.filter((x) => normalizeCategoryLabel(x).toLowerCase() !== normalizeCategoryLabel(label).toLowerCase()))
+  }
+
   function periodLabel(): string {
     if (selectedMonthIndex !== null) {
       const label = yearSummary?.months[selectedMonthIndex]?.monthName ?? ''
@@ -135,7 +263,7 @@ export function ReportsView() {
     }
     if (!yearSummary) return 'Total'
     const start = new Date(yearSummary.startYear, yearSummary.startMonth, 1)
-    const end = new Date(yearSummary.startYear, yearSummary.startMonth + 12, 1)
+    const end = new Date(yearSummary.startYear, yearSummary.startMonth + (yearSummary.months?.length ?? 12), 1)
     const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     return `${fmt(start)} → ${fmt(end)}`
   }
@@ -645,49 +773,199 @@ export function ReportsView() {
     )
   }
 
+  function renderBudget() {
+    const totals = budgetRows.reduce(
+      (acc, r) => ({ assigned: acc.assigned + r.assigned, spent: acc.spent + r.spent, available: acc.available + r.available }),
+      { assigned: 0, spent: 0, available: 0 },
+    )
+
+    const overallPct = totals.assigned > 0 ? Math.min(1, Math.max(0, totals.spent / totals.assigned)) : totals.spent > 0 ? 1 : 0
+    const overallTone: 'pos' | 'neg' | 'neutral' = totals.available > 0 ? 'pos' : totals.available < 0 ? 'neg' : 'neutral'
+
+    return (
+      <div className="groupBox" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="groupTitle" style={{ marginBottom: 6 }}>
+              Budget
+            </div>
+            <div className="note" style={{ marginTop: 0 }}>
+              Set how much you plan to spend per category. Spent comes from expense transactions. Left = Budget − Spent.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="pill" data-tone="neutral">
+              Budget {currency(totals.assigned, state.settings.displayCurrencyCode)}
+            </span>
+            <span className="pill" data-tone="neutral">
+              Spent {currency(totals.spent, state.settings.displayCurrencyCode)}
+            </span>
+            <span className="pill" data-tone={overallTone}>
+              Left {currency(totals.available, state.settings.displayCurrencyCode)}
+            </span>
+          </div>
+        </div>
+
+        <div className="progressRow" style={{ marginTop: 10 }}>
+          <div className="progressBar">
+            <div
+              className="progressFill"
+              style={{
+                width: `${Math.round(overallPct * 100)}%`,
+                background: totals.spent > totals.assigned && totals.assigned > 0 ? 'var(--red)' : 'var(--accent)',
+              }}
+            />
+          </div>
+          <div className="progressValue">{Math.round(overallPct * 100)}%</div>
+        </div>
+
+        <div className="list" style={{ marginTop: 12 }}>
+          <div
+            className="note"
+            style={{
+              marginTop: 0,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) 140px 140px 140px',
+              gap: 10,
+              padding: '8px 12px',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              fontWeight: 800,
+            }}
+          >
+            <div>Category</div>
+            <div style={{ textAlign: 'right' }}>Budget</div>
+            <div style={{ textAlign: 'right' }}>Spent</div>
+            <div style={{ textAlign: 'right' }}>Left</div>
+          </div>
+
+          {budgetRows.map((r) => {
+            const pct = r.assigned > 0 ? Math.min(1, Math.max(0, r.spent / r.assigned)) : r.spent > 0 ? 1 : 0
+            const tone: 'pos' | 'neg' | 'neutral' = r.available > 0 ? 'pos' : r.available < 0 ? 'neg' : 'neutral'
+            const fill = r.spent > r.assigned && r.assigned > 0 ? 'var(--red)' : 'var(--accent)'
+            return (
+              <div key={r.key} className="note" style={{ marginTop: 0, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 140px 140px 140px', gap: 10, alignItems: 'center' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800, color: 'var(--text-h)' }}>
+                        {r.label}
+                      </div>
+                      {r.kind === 'custom' ? (
+                        <button type="button" onClick={() => removeCustomBudgetCategory(r.label)} style={{ padding: '2px 8px' }}>
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="progressRow" style={{ marginTop: 8 }}>
+                      <div className="progressBar">
+                        <div className="progressFill" style={{ width: `${Math.round(pct * 100)}%`, background: fill }} />
+                      </div>
+                      <div className="progressValue">{Math.round(pct * 100)}%</div>
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    value={Number.isFinite(r.assigned) ? r.assigned : 0}
+                    onChange={(e) => setBudgetAmount(r.key, Number(e.target.value))}
+                    style={{ width: 130, justifySelf: 'end' }}
+                  />
+                  <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{currency(r.spent, state.settings.displayCurrencyCode)}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className="pill" data-tone={tone}>
+                      {currency(r.available, state.settings.displayCurrencyCode)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            value={newBudgetCategory}
+            onChange={(e) => setNewBudgetCategory(e.target.value)}
+            placeholder="Add custom category (e.g. Groceries)"
+            style={{ width: 300 }}
+          />
+          <button type="button" onClick={addCustomBudgetCategory} disabled={!normalizeCategoryLabel(newBudgetCategory)}>
+            Add category
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="row" style={{ marginTop: 8 }}>
         <div className="rowActions">
-          <button type="button" onClick={() => void savePiePdf('expense')} disabled={savingPdf || expensePieTotal <= 0}>
-            Print Expenses PDF
-          </button>
-          <button type="button" onClick={() => void savePiePdf('income')} disabled={savingPdf || incomePieTotal <= 0}>
-            Print Income PDF
-          </button>
-          <label className="field" style={{ margin: 0, marginRight: 16 }}>
-            <div className="fieldLabel">Start Month</div>
-            <select value={startMonthStr} onChange={(e) => setStartMonthStr(e.target.value)} style={{ width: 120, height: 32 }}>
-              <option value="0">January</option>
-              <option value="1">February</option>
-              <option value="2">March</option>
-              <option value="3">April</option>
-              <option value="4">May</option>
-              <option value="5">June</option>
-              <option value="6">July</option>
-              <option value="7">August</option>
-              <option value="8">September</option>
-              <option value="9">October</option>
-              <option value="10">November</option>
-              <option value="11">December</option>
-            </select>
-          </label>
-          <label className="field" style={{ margin: 0 }}>
-            <div className="fieldLabel">Year</div>
-            <input type="number" value={yearStr} onChange={(e) => setYearStr(e.target.value)} style={{ width: 100, height: 32 }} min={1900} max={2100} />
-          </label>
-          <label className="check" style={{ margin: 0, marginLeft: 16 }}>
-            <input type="checkbox" checked={showIncomePie} onChange={(e) => setShowIncomePie(e.target.checked)} />
-            Income pie
-          </label>
-          <label className="check" style={{ margin: 0 }}>
-            <input type="checkbox" checked={showExpensePie} onChange={(e) => setShowExpensePie(e.target.checked)} />
-            Expenses pie
-          </label>
+          {mode === 'budget' ? (
+            <label className="field" style={{ margin: 0 }}>
+              <div className="fieldLabel">Month</div>
+              <input type="month" value={budgetMonth} onChange={(e) => setBudgetMonth(e.target.value)} style={{ width: 150, height: 32 }} />
+            </label>
+          ) : (
+            <>
+              <button type="button" onClick={() => void savePiePdf('expense')} disabled={savingPdf || expensePieTotal <= 0}>
+                Print Expenses PDF
+              </button>
+              <button type="button" onClick={() => void savePiePdf('income')} disabled={savingPdf || incomePieTotal <= 0}>
+                Print Income PDF
+              </button>
+              <label className="field" style={{ margin: 0, marginRight: 16 }}>
+                <div className="fieldLabel">Start Month</div>
+                <select
+                  value={startMonthStr}
+                  onChange={(e) => {
+                    setStartMonthStr(e.target.value)
+                    setAutoRange(false)
+                  }}
+                  style={{ width: 120, height: 32 }}
+                >
+                  <option value="0">January</option>
+                  <option value="1">February</option>
+                  <option value="2">March</option>
+                  <option value="3">April</option>
+                  <option value="4">May</option>
+                  <option value="5">June</option>
+                  <option value="6">July</option>
+                  <option value="7">August</option>
+                  <option value="8">September</option>
+                  <option value="9">October</option>
+                  <option value="10">November</option>
+                  <option value="11">December</option>
+                </select>
+              </label>
+              <label className="field" style={{ margin: 0 }}>
+                <div className="fieldLabel">Year</div>
+                <input
+                  type="number"
+                  value={yearStr}
+                  onChange={(e) => {
+                    setYearStr(e.target.value)
+                    setAutoRange(false)
+                  }}
+                  style={{ width: 100, height: 32 }}
+                  min={1900}
+                  max={2100}
+                />
+              </label>
+              <label className="check" style={{ margin: 0, marginLeft: 16 }}>
+                <input type="checkbox" checked={showIncomePie} onChange={(e) => setShowIncomePie(e.target.checked)} />
+                Income pie
+              </label>
+              <label className="check" style={{ margin: 0 }}>
+                <input type="checkbox" checked={showExpensePie} onChange={(e) => setShowExpensePie(e.target.checked)} />
+                Expenses pie
+              </label>
+            </>
+          )}
+
         </div>
       </div>
 
-      {renderYearly()}
+      {mode === 'budget' ? renderBudget() : renderYearly()}
     </>
   )
 }

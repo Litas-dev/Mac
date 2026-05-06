@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore } from '../../app/appStore'
 import type { BillCategory, Invoice, InvoiceAttachment, Transaction, TransactionKind, UUID } from '../../domain/models'
 import { currency } from '../../domain/finance'
 import { fromDateInputValue, toDateInputValue } from '../date'
 import { parseCsvRows, rowsToTransactions } from '../../domain/csvImport'
+import { calculateMonthSummary } from '../../domain/reports'
 import {
   type PdfImportFormat,
-  convertPdfToCsvString,
   parsePdfRowsWithOptions,
   pdfRowsToTransactions,
 } from '../../domain/pdfImport'
-import { applyImportCategoryRules } from '../../domain/importCategorization'
+import { runImportPipeline, transactionDupeKey } from '../../domain/importPipeline'
+import { expenseCategoryFromTransaction, normalizeCategoryLabel } from '../../domain/settings'
 import { useContextMenu } from '../ContextMenu'
 import { MenuSelect } from '../MenuSelect'
 import { TransactionKindIcon } from '../icons'
@@ -19,6 +21,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import { AI_TRANSACTIONS_AUTOMATION_EVENT, type TransactionsAutomationRequest } from '../../ai/experimentalGuiAutomation'
 import { normalizePeopleSettings, visibleTransactions } from '../../domain/people'
+import { AI_FEATURE_ENABLED } from '../../domain/settings'
 
 const FILES_IMPORT_PDF_EVENT = 'files:import_pdf_to_transactions'
 
@@ -49,7 +52,9 @@ export function TransactionsView() {
   const [payeeFilter, setPayeeFilter] = useState<string | 'all'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [sort, setSort] = useState<'dateDesc' | 'dateAsc' | 'amountDesc' | 'amountAsc' | 'netDesc' | 'netAsc' | 'nameAsc' | 'nameDesc'>('dateDesc')
-  const [showEditor, setShowEditor] = useState(true)
+  const [viewMode, setViewMode] = useState<'standard' | 'detailed'>('detailed')
+  const showEditor = viewMode === 'detailed'
+  const showFilters = viewMode === 'detailed'
   const [selectedIds, setSelectedIds] = useState<Set<UUID>>(() => new Set())
   const [allowLargeUnfilteredList, setAllowLargeUnfilteredList] = useState(false)
   const [taxRatePct, setTaxRatePct] = useState<number>(0)
@@ -66,28 +71,30 @@ export function TransactionsView() {
   const [wizardIndex, setWizardIndex] = useState(0)
   const [wizardCategory, setWizardCategory] = useState<BillCategory>('other')
   const [wizardCustomName, setWizardCustomName] = useState('')
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [reconcilePreviewTxId, setReconcilePreviewTxId] = useState<UUID | null>(null)
+  const [reconcilePreviewEdit, setReconcilePreviewEdit] = useState(false)
+  const [reconcileMonth, setReconcileMonth] = useState(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    return `${y}-${m}`
+  })
   const [importingPdf, setImportingPdf] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [importBusyText, setImportBusyText] = useState('Working on import…')
-  const [convertingPdf, setConvertingPdf] = useState(false)
-  const [pdfFormat, setPdfFormat] = useState<PdfImportFormat>('auto')
+  const pdfFormat: PdfImportFormat = 'auto'
   const listRef = useRef<HTMLDivElement | null>(null)
   const [virtualScrollTop, setVirtualScrollTop] = useState(0)
   const [virtualViewportHeight, setVirtualViewportHeight] = useState(800)
   const [virtualListStart, setVirtualListStart] = useState(0)
   const virtualRowHeight = 66
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const pdfInputRef = useRef<HTMLInputElement | null>(null)
-  const convertPdfInputRef = useRef<HTMLInputElement | null>(null)
+  const viewModeAnchorRef = useRef<HTMLDivElement | null>(null)
+  const [selectionPos, setSelectionPos] = useState<{ left: number; top: number; width: number } | null>(null)
   const enableTaxPdf = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TAX_PDF === '1'
   const enableGuiAutomation =
-    (import.meta.env.DEV && import.meta.env.VITE_ENABLE_AI_GUI !== '0') || import.meta.env.VITE_ENABLE_AI_GUI === '1'
-
-  function txnDupeKey(t: Transaction): string {
-    const day = toDateInputValue(t.date)
-    const cents = Math.round(Number(t.amount.value) * 100)
-    return `${t.kind}|${day}|${t.amount.currencyCode}|${cents}`
-  }
+    AI_FEATURE_ENABLED && ((import.meta.env.DEV && import.meta.env.VITE_ENABLE_AI_GUI !== '0') || import.meta.env.VITE_ENABLE_AI_GUI === '1')
 
   function uniqueTags(tags: string[]): string[] {
     const out: string[] = []
@@ -100,32 +107,6 @@ export function TransactionsView() {
       out.push(t)
     }
     return out
-  }
-
-  function analyzeDuplicates(imported: Transaction[]): { duplicateKeysInFile: string[]; duplicateKeysExisting: string[] } {
-    const existingKeys = new Set<string>()
-    for (const t of state.transactions) existingKeys.add(txnDupeKey(t))
-
-    const counts = new Map<string, number>()
-    for (const t of imported) {
-      const k = txnDupeKey(t)
-      counts.set(k, (counts.get(k) ?? 0) + 1)
-    }
-
-    const duplicateKeysInFile: string[] = []
-    const duplicateKeysExisting: string[] = []
-    for (const [k, c] of counts) {
-      if (c > 1) duplicateKeysInFile.push(k)
-      if (existingKeys.has(k)) duplicateKeysExisting.push(k)
-    }
-    return { duplicateKeysInFile, duplicateKeysExisting }
-  }
-
-  function openDuplicateImportModal(source: 'CSV' | 'PDF', imported: Transaction[], autoCount: number) {
-    const { duplicateKeysInFile, duplicateKeysExisting } = analyzeDuplicates(imported)
-    if (duplicateKeysInFile.length === 0 && duplicateKeysExisting.length === 0) return false
-    setImportDuplicateModal({ source, tx: imported, autoCount, duplicateKeysInFile, duplicateKeysExisting })
-    return true
   }
 
   function commitImportTransactions(imported: Transaction[], autoCount: number) {
@@ -184,6 +165,137 @@ export function TransactionsView() {
     if (!s) s = payeeKey.trim()
     return titleCase(s)
   }
+
+  function parseMonthValue(value: string): Date {
+    const v = String(value ?? '').trim()
+    const m = v.match(/^(\d{4})-(\d{2})$/)
+    if (!m) return new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    const y = Number(m[1])
+    const mi = Number(m[2]) - 1
+    if (!Number.isFinite(y) || !Number.isFinite(mi)) return new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    return new Date(y, Math.min(11, Math.max(0, mi)), 1)
+  }
+
+  function sameMonth(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
+  }
+
+  function dayDiff(a: Date, b: Date): number {
+    const aa = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime()
+    const bb = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime()
+    return Math.round(Math.abs(aa - bb) / 86400000)
+  }
+
+  function scoreNameMatch(needle: string, haystack: string): number {
+    const n = normalizeCategoryLabel(needle).toLowerCase()
+    const h = normalizeCategoryLabel(haystack).toLowerCase()
+    if (!n || !h) return 0
+    if (h.includes(n)) return 3
+    const tokens = n.split(' ').filter((x) => x.length >= 3)
+    let hits = 0
+    for (const t of tokens) if (h.includes(t)) hits += 1
+    return hits
+  }
+
+  const reconcileMonthDate = useMemo(() => parseMonthValue(reconcileMonth), [reconcileMonth])
+
+  const reconcileSuggestions = useMemo(() => {
+    const mSum = calculateMonthSummary({
+      month: reconcileMonthDate,
+      bills: state.bills,
+      incomes: state.incomes,
+      transactions: personTransactions,
+    })
+
+    const candidatesExpense = personTransactions.filter(
+      (t) => sameMonth(t.date, reconcileMonthDate) && t.kind === 'expense' && !t.relatedBillId && !t.relatedIncomeId,
+    )
+    const candidatesIncome = personTransactions.filter(
+      (t) => sameMonth(t.date, reconcileMonthDate) && t.kind === 'income' && !t.relatedBillId && !t.relatedIncomeId,
+    )
+
+    const billById = new Map<string, { name: string; amount: number; currencyCode: string }>()
+    for (const b of state.bills) billById.set(b.id, { name: b.name, amount: b.amount.value, currencyCode: b.amount.currencyCode })
+
+    const incomeById = new Map<string, { name: string; amount: number; currencyCode: string }>()
+    for (const i of state.incomes) incomeById.set(i.id, { name: i.name, amount: i.amount.value, currencyCode: i.amount.currencyCode })
+
+    const billNeeds = mSum.billDetails.filter((x) => Boolean(x.billId) && x.isPaid === false)
+    const incomeNeeds = mSum.incomeDetails.filter((x) => Boolean(x.incomeId) && x.isPaid === false)
+
+    const usedExpense = new Set<UUID>()
+    const usedIncome = new Set<UUID>()
+    const billMatches: Array<{ billId: UUID; txId: UUID; due: Date; name: string; amount: number }> = []
+    const incomeMatches: Array<{ incomeId: UUID; txId: UUID; due: Date; name: string; amount: number }> = []
+
+    for (const need of billNeeds) {
+      const billId = need.billId as UUID
+      const meta = billById.get(billId)
+      if (!meta) continue
+      let best: { t: Transaction; score: number } | null = null
+      for (const t of candidatesExpense) {
+        if (usedExpense.has(t.id)) continue
+        if (t.amount.currencyCode !== meta.currencyCode) continue
+        const amountDiff = Math.abs(t.amount.value - meta.amount)
+        const tol = Math.max(1, meta.amount * 0.01)
+        if (amountDiff > tol) continue
+        const dd = dayDiff(t.date, need.date)
+        if (dd > 31) continue
+        const s = 10 - dd + scoreNameMatch(meta.name, t.payee ?? '')
+        if (!best || s > best.score) best = { t, score: s }
+      }
+      if (best) {
+        usedExpense.add(best.t.id)
+        billMatches.push({ billId, txId: best.t.id, due: need.date, name: meta.name, amount: meta.amount })
+      }
+    }
+
+    for (const need of incomeNeeds) {
+      const incomeId = need.incomeId as UUID
+      const meta = incomeById.get(incomeId)
+      if (!meta) continue
+      let best: { t: Transaction; score: number } | null = null
+      for (const t of candidatesIncome) {
+        if (usedIncome.has(t.id)) continue
+        if (t.amount.currencyCode !== meta.currencyCode) continue
+        const amountDiff = Math.abs(t.amount.value - meta.amount)
+        const tol = Math.max(1, meta.amount * 0.01)
+        if (amountDiff > tol) continue
+        const dd = dayDiff(t.date, need.date)
+        if (dd > 31) continue
+        const s = 10 - dd + scoreNameMatch(meta.name, t.payee ?? '')
+        if (!best || s > best.score) best = { t, score: s }
+      }
+      if (best) {
+        usedIncome.add(best.t.id)
+        incomeMatches.push({ incomeId, txId: best.t.id, due: need.date, name: meta.name, amount: meta.amount })
+      }
+    }
+
+    const unlinkedExpenses = candidatesExpense.filter((t) => !usedExpense.has(t.id))
+    const unlinkedIncome = candidatesIncome.filter((t) => !usedIncome.has(t.id))
+
+    const matchedBillIds = new Set(billMatches.map((x) => x.billId))
+    const matchedIncomeIds = new Set(incomeMatches.map((x) => x.incomeId))
+    const missingBills = billNeeds
+      .filter((x) => !matchedBillIds.has(x.billId as UUID))
+      .map((x) => ({
+        billId: x.billId as UUID,
+        due: x.date,
+        name: billById.get(x.billId as UUID)?.name ?? 'Bill',
+        amount: billById.get(x.billId as UUID)?.amount ?? x.amount,
+      }))
+    const missingIncome = incomeNeeds
+      .filter((x) => !matchedIncomeIds.has(x.incomeId as UUID))
+      .map((x) => ({
+        incomeId: x.incomeId as UUID,
+        due: x.date,
+        name: incomeById.get(x.incomeId as UUID)?.name ?? 'Income',
+        amount: incomeById.get(x.incomeId as UUID)?.amount ?? x.amount,
+      }))
+
+    return { billMatches, incomeMatches, missingBills, missingIncome, unlinkedExpenses, unlinkedIncome }
+  }, [personTransactions, reconcileMonthDate, state.bills, state.incomes])
 
   function shiftDateValue(value: string, deltaYears: number, deltaMonths: number): string {
     const base = value ? fromDateInputValue(value) : new Date()
@@ -552,10 +664,17 @@ export function TransactionsView() {
     dispatch({ type: 'transactions/add', transaction: t })
   }
 
-  function deleteSelected() {
-    if (!selected) return
-    if (!window.confirm('Delete transaction?')) return
-    dispatch({ type: 'transactions/delete', id: selected.id })
+  function deleteSelectionTransactions() {
+    if (selectedIds.size === 0) return
+    const n = selectedIds.size
+    if (!window.confirm(n === 1 ? 'Delete selected transaction?' : `Delete ${n} selected transactions?`)) return
+    for (const id of selectedIds) dispatch({ type: 'transactions/delete', id })
+    setSelectedIds(new Set())
+  }
+
+  function openTransactionFromReconcile(id: UUID) {
+    setReconcilePreviewTxId(id)
+    setReconcilePreviewEdit(false)
   }
 
   function deleteAllTransactions() {
@@ -563,6 +682,16 @@ export function TransactionsView() {
     if (n === 0) return
     setDeleteAllTyped('')
     setDeleteAllOpen(true)
+  }
+
+  function shiftMonthValue(value: string, deltaMonths: number): string {
+    const v = String(value ?? '').trim()
+    const m = v.match(/^(\d{4})-(\d{2})$/)
+    const base = m ? new Date(Number(m[1]), Math.max(0, Math.min(11, Number(m[2]) - 1)), 1) : new Date()
+    const next = new Date(base.getFullYear(), base.getMonth() + deltaMonths, 1)
+    const y = next.getFullYear()
+    const mm = String(next.getMonth() + 1).padStart(2, '0')
+    return `${y}-${mm}`
   }
 
   function updateSelected(patch: Partial<Transaction>) {
@@ -915,7 +1044,7 @@ export function TransactionsView() {
       const req = e.detail
       if (!req) return
 
-      setShowEditor(true)
+      setViewMode('detailed')
       if (req.kind != null) setKindFilter(req.kind)
       if (req.payee != null) {
         const key = payeeGroupKey(req.payee)
@@ -1026,25 +1155,167 @@ export function TransactionsView() {
     }
     window.addEventListener(FILES_IMPORT_PDF_EVENT, handler as any)
     return () => window.removeEventListener(FILES_IMPORT_PDF_EVENT, handler as any)
-  }, [pdfFormat, state.accounts, state.settings, state.transactions])
+  }, [state.accounts, state.settings, state.transactions])
 
-  function importCsvClick() {
+  function importFileClick() {
     fileInputRef.current?.click()
   }
 
-  function importPdfClick() {
-    pdfInputRef.current?.click()
+  useEffect(() => {
+    if (selectedIds.size === 0) {
+      setSelectionPos(null)
+      return
+    }
+
+    const compute = () => {
+      const margin = 10
+      const width = Math.max(320, Math.min(720, window.innerWidth - margin * 2))
+      const r = viewModeAnchorRef.current?.getBoundingClientRect() ?? null
+      const anchorRight = r ? r.right : window.innerWidth - margin
+      const anchorBottom = r ? r.bottom : 56
+      const left = Math.max(margin, Math.min(anchorRight - width, window.innerWidth - width - margin))
+      const top = Math.max(margin, Math.min(anchorBottom + 8, window.innerHeight - margin - 80))
+      setSelectionPos({ left, top, width })
+    }
+
+    compute()
+    window.addEventListener('resize', compute)
+    window.addEventListener('scroll', compute, true)
+    return () => {
+      window.removeEventListener('resize', compute)
+      window.removeEventListener('scroll', compute, true)
+    }
+  }, [selectedIds.size, viewMode])
+
+  function ImportIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v10" />
+        <path d="M8 9l4 4 4-4" />
+        <path d="M4 17v3h16v-3" />
+      </svg>
+    )
   }
 
-  function convertPdfClick() {
-    convertPdfInputRef.current?.click()
+  function PlusIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </svg>
+    )
+  }
+
+  function PrinterIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 9V4h12v5" />
+        <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
+        <path d="M6 14h12v6H6z" />
+      </svg>
+    )
+  }
+
+  function CheckIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 6L9 17l-5-5" />
+      </svg>
+    )
+  }
+
+  function PercentIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 5L5 19" />
+        <circle cx="7" cy="7" r="2" />
+        <circle cx="17" cy="17" r="2" />
+      </svg>
+    )
+  }
+
+  function TrashIcon() {
+    return (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+      </svg>
+    )
+  }
+
+  async function onPickImportFile(file: File | null) {
+    if (!file) return
+    const name = String(file.name ?? '').toLowerCase()
+    const type = String(file.type ?? '').toLowerCase()
+    const isPdf = name.endsWith('.pdf') || type.includes('pdf')
+    if (isPdf) {
+      await onPickPdf(file)
+      return
+    }
+    await onPickCsv(file)
+  }
+
+  async function readTextFileSmart(file: File): Promise<string> {
+    const buf = await file.arrayBuffer()
+    let bytes = new Uint8Array(buf)
+
+    if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+      try {
+        return new TextDecoder('utf-16le').decode(bytes.subarray(2))
+      } catch {}
+    }
+    if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+      const swapped = new Uint8Array(Math.max(0, bytes.length - 2))
+      let j = 0
+      for (let i = 2; i + 1 < bytes.length; i += 2) {
+        swapped[j++] = bytes[i + 1]!
+        swapped[j++] = bytes[i]!
+      }
+      try {
+        return new TextDecoder('utf-16le').decode(swapped)
+      } catch {}
+    }
+
+    if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+      bytes = bytes.subarray(3)
+    }
+
+    const candidates: Array<{ enc: string; fatal: boolean }> = [
+      { enc: 'utf-8', fatal: true },
+      { enc: 'utf-8', fatal: false },
+      { enc: 'windows-1252', fatal: false },
+      { enc: 'iso-8859-1', fatal: false },
+    ]
+
+    let bestText: string | null = null
+    let bestBad = Number.POSITIVE_INFINITY
+
+    for (const c of candidates) {
+      let text: string
+      try {
+        text = new TextDecoder(c.enc as any, { fatal: c.fatal }).decode(bytes)
+      } catch {
+        continue
+      }
+      const bad = (text.match(/\uFFFD/g) ?? []).length
+      if (bad < bestBad) {
+        bestBad = bad
+        bestText = text
+      }
+      if (bad === 0 && c.enc === 'utf-8') return text
+    }
+
+    return bestText ?? (await file.text())
   }
 
   async function onPickCsv(file: File | null) {
     if (!file) return
     await beginImportBusy('Reading CSV…')
     try {
-      const text = await file.text()
+      const text = await readTextFileSmart(file)
       updateImportBusy('Parsing rows…')
       const rows = parseCsvRows(text)
       const activeAccounts = state.accounts.filter((a) => !a.archived)
@@ -1058,9 +1329,9 @@ export function TransactionsView() {
       }
       const importedBase = rowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
       updateImportBusy('Applying category rules…')
-      const fromRules = applyImportCategoryRules(importedBase, state.settings)
-      let autoCount = fromRules.appliedCount
-      const imported = fromRules.transactions.map((t) => {
+      const piped = runImportPipeline({ existing: state.transactions, imported: importedBase, settings: state.settings, sourceTag: 'bank-csv' })
+      let autoCount = piped.autoCategorizedCount
+      const imported = piped.transactions.map((t) => {
         if (t.kind !== 'expense') return t
         const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
         if (!isUncategorized) return t
@@ -1076,7 +1347,16 @@ export function TransactionsView() {
         return
       }
       updateImportBusy('Checking duplicates…')
-      if (openDuplicateImportModal('CSV', imported, autoCount)) return
+      if (piped.duplicateKeysInFile.length > 0 || piped.duplicateKeysExisting.length > 0) {
+        setImportDuplicateModal({
+          source: 'CSV',
+          tx: imported,
+          autoCount,
+          duplicateKeysInFile: piped.duplicateKeysInFile,
+          duplicateKeysExisting: piped.duplicateKeysExisting,
+        })
+        return
+      }
       updateImportBusy('Saving imported transactions…')
       commitImportTransactions(imported, autoCount)
     } finally {
@@ -1102,9 +1382,9 @@ export function TransactionsView() {
       }
       const importedBase = pdfRowsToTransactions(rows, state.settings.displayCurrencyCode, resolveAccountId)
       updateImportBusy('Applying category rules…')
-      const fromRules = applyImportCategoryRules(importedBase, state.settings)
-      let autoCount = fromRules.appliedCount
-      const imported = fromRules.transactions.map((t) => {
+      const piped = runImportPipeline({ existing: state.transactions, imported: importedBase, settings: state.settings, sourceTag: 'bank-pdf' })
+      let autoCount = piped.autoCategorizedCount
+      const imported = piped.transactions.map((t) => {
         if (t.kind !== 'expense') return t
         const isUncategorized = (t.category ?? 'other') === 'other' && !(t.customCategoryName ?? '').trim()
         if (!isUncategorized) return t
@@ -1120,7 +1400,16 @@ export function TransactionsView() {
         return
       }
       updateImportBusy('Checking duplicates…')
-      if (openDuplicateImportModal('PDF', imported, autoCount)) return
+      if (piped.duplicateKeysInFile.length > 0 || piped.duplicateKeysExisting.length > 0) {
+        setImportDuplicateModal({
+          source: 'PDF',
+          tx: imported,
+          autoCount,
+          duplicateKeysInFile: piped.duplicateKeysInFile,
+          duplicateKeysExisting: piped.duplicateKeysExisting,
+        })
+        return
+      }
       updateImportBusy('Saving imported transactions…')
       commitImportTransactions(imported, autoCount)
     } catch (e) {
@@ -1129,37 +1418,6 @@ export function TransactionsView() {
     } finally {
       setImportingPdf(false)
       endImportBusy()
-    }
-  }
-
-  async function onConvertPdf(file: File | null) {
-    if (!file) return
-    setConvertingPdf(true)
-    try {
-      const csvString = await convertPdfToCsvString(file, { format: pdfFormat })
-      const defaultName = file.name.replace(/\.pdf$/i, '.csv')
-      if (isTauriRuntime()) {
-        const { save } = await import('@tauri-apps/plugin-dialog')
-        const { invoke } = await import('@tauri-apps/api/core')
-        const path = await save({ defaultPath: defaultName })
-        if (!path) return
-        await invoke('export_csv', { destinationPath: path, csvContent: csvString })
-        window.alert('CSV saved.')
-      } else {
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = defaultName
-        a.click()
-        URL.revokeObjectURL(url)
-        window.alert('CSV downloaded.')
-      }
-    } catch (e) {
-      console.error(e)
-      window.alert('Failed to convert PDF file.')
-    } finally {
-      setConvertingPdf(false)
     }
   }
 
@@ -1381,7 +1639,7 @@ export function TransactionsView() {
                   const inFile = new Set(importDuplicateModal.duplicateKeysInFile)
                   const inExisting = new Set(importDuplicateModal.duplicateKeysExisting)
                   const dupes = importDuplicateModal.tx
-                    .map((t) => ({ t, k: txnDupeKey(t) }))
+                    .map((t) => ({ t, k: transactionDupeKey(t) }))
                     .filter((x) => inFile.has(x.k) || inExisting.has(x.k))
                     .slice(0, 60)
                   return dupes.map(({ t, k }) => {
@@ -1418,7 +1676,7 @@ export function TransactionsView() {
                   const inFile = new Set(importDuplicateModal.duplicateKeysInFile)
                   const inExisting = new Set(importDuplicateModal.duplicateKeysExisting)
                   const marked = importDuplicateModal.tx.map((t) => {
-                    const k = txnDupeKey(t)
+                    const k = transactionDupeKey(t)
                     if (!inFile.has(k) && !inExisting.has(k)) return t
                     return { ...t, tags: uniqueTags([...(t.tags ?? []), 'needs-review', 'duplicate']) }
                   })
@@ -1594,301 +1852,766 @@ export function TransactionsView() {
           </div>
         </div>
       ) : null}
-      <div className="toolbarWrap">
-        <div className="row">
-          <div className="toolbarLeft">
-            <div className="toolbarSubtitle">
-              {filtered.length.toLocaleString()} / {personTransactions.length.toLocaleString()} shown
-              {filterSummary ? ` • ${filterSummary}` : ''}
-              {peopleSettings.peopleEnabled && activePerson ? ` • Person: ${activePerson.name}` : ''}
-            </div>
-          </div>
-          <div className="rowActions">
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" style={{ width: 180 }} />
-              <MenuSelect
-                value={pdfFormat}
-                options={[
-                  { value: 'auto', label: 'PDF: Auto' },
-                  { value: 'monzo', label: 'PDF: Monzo' },
-                  { value: 'revolut-lt', label: 'PDF: Revolut (LT)' },
-                  { value: 'metro', label: 'PDF: Metro' },
-                  { value: 'inout-table', label: 'PDF: Table (In/Out)' },
-                  { value: 'generic', label: 'PDF: Generic' },
-                ]}
-                onChange={(v) => setPdfFormat(v)}
-                width={220}
-              />
-              <button type="button" onClick={importCsvClick}>
-                Import CSV
-              </button>
-              <button type="button" onClick={importPdfClick} disabled={importingPdf || convertingPdf}>
-                Import PDF
-              </button>
-              <button type="button" onClick={convertPdfClick} disabled={importingPdf || convertingPdf}>
-                Convert PDF to CSV
-              </button>
-              <button type="button" onClick={() => setShowEditor((v) => !v)}>
-                {showEditor ? 'Hide Editor' : 'Show Editor'}
-              </button>
-              <button type="button" onClick={createTransaction} className="btnPrimary">
-                Add
-              </button>
-              <button type="button" onClick={deleteAllTransactions} disabled={state.transactions.length === 0} className="btnDanger">
-                Delete All
-              </button>
-              <button type="button" onClick={deleteSelected} disabled={!selected} className="btnDanger">
-                Delete
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,text/csv,text/plain"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.currentTarget.files?.[0] ?? null
-                  e.currentTarget.value = ''
-                  void onPickCsv(f)
-                }}
-              />
-              <input
-                ref={pdfInputRef}
-                type="file"
-                accept=".pdf,application/pdf"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.currentTarget.files?.[0] ?? null
-                  e.currentTarget.value = ''
-                  void onPickPdf(f)
-                }}
-              />
-              <input
-                ref={convertPdfInputRef}
-                type="file"
-                accept=".pdf,application/pdf"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.currentTarget.files?.[0] ?? null
-                  e.currentTarget.value = ''
-                  void onConvertPdf(f)
-                }}
-              />
-            </div>
-        </div>
-        <div className="row" style={{ marginTop: 8 }}>
-          <div className="rowActions" style={{ flexWrap: 'wrap' }}>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Account</div>
-              <MenuSelect
-                value={accountFilterId}
-                options={[
-                  { value: 'all', label: 'All Accounts' },
-                  ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
-                ]}
-                onChange={(v) => setAccountFilterId(v as any)}
-                width={220}
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Type</div>
-              <MenuSelect
-                value={kindFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'expense', label: 'Expenses' },
-                  { value: 'income', label: 'Income' },
-                  { value: 'transfer', label: 'Transfers' },
-                ]}
-                onChange={(v) => setKindFilter(v as any)}
-                width={150}
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Source</div>
-              <MenuSelect
-                value={sourceFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'imported', label: 'Imported' },
-                  { value: 'manual', label: 'Manual' },
-                ]}
-                onChange={(v) => setSourceFilter(v as any)}
-                width={150}
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Date</div>
-              <MenuSelect
-                value={dateFilter}
-                options={[
-                  { value: 'all', label: 'All time' },
-                  { value: 'last30', label: 'Last 30 days' },
-                  { value: 'last90', label: 'Last 90 days' },
-                  { value: 'thisMonth', label: 'This month' },
-                  { value: 'range', label: 'Custom range' },
-                ]}
-                onChange={(v) => setDateFilter(v as any)}
-                width={160}
-              />
-            </label>
-            {dateFilter === 'range' ? (
-              <>
-                <label className="field" style={{ margin: 0 }}>
-                  <div className="fieldLabel">From</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      style={{
-                        appearance: 'none',
-                        border: '1px solid var(--border)',
-                        background: 'var(--surface)',
-                        color: 'var(--text-h)',
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        fontSize: 13,
-                        height: 34,
-                        width: 140,
-                      }}
-                    />
-                    <div style={{ display: 'grid', gridAutoFlow: 'column', gap: 6 }}>
-                      <button type="button" onClick={() => setDateFrom((v) => shiftDateValue(v, -1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        -1y
-                      </button>
-                      <button type="button" onClick={() => setDateFrom((v) => shiftDateValue(v, 1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        +1y
-                      </button>
-                      <button type="button" onClick={() => setDateFrom((v) => shiftDateValue(v, 0, -1))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        -1m
-                      </button>
-                      <button type="button" onClick={() => setDateFrom((v) => shiftDateValue(v, 0, 1))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        +1m
-                      </button>
-                      <button type="button" onClick={() => setDateFrom('')} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                </label>
-                <label className="field" style={{ margin: 0 }}>
-                  <div className="fieldLabel">To</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      style={{
-                        appearance: 'none',
-                        border: '1px solid var(--border)',
-                        background: 'var(--surface)',
-                        color: 'var(--text-h)',
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        fontSize: 13,
-                        height: 34,
-                        width: 140,
-                      }}
-                    />
-                    <div style={{ display: 'grid', gridAutoFlow: 'column', gap: 6 }}>
-                      <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, -1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        -1y
-                      </button>
-                      <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        +1y
-                      </button>
-                      <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 0, -1))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        -1m
-                      </button>
-                      <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 0, 1))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        +1m
-                      </button>
-                      <button type="button" onClick={() => setDateTo(toDateInputValue(new Date()))} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        Today
-                      </button>
-                      <button type="button" onClick={() => setDateTo('')} style={{ padding: '4px 6px', fontSize: 11 }}>
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                </label>
-              </>
-            ) : null}
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Payee</div>
-              <MenuSelect
-                value={payeeFilter as any}
-                options={[
-                  { value: 'all', label: 'All' },
-                  ...payeeGroups.map((x) => ({ value: x.key as any, label: `${x.key} (${x.count})` })),
-                ]}
-                onChange={(v) => setPayeeFilter(v as any)}
-                width={340}
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Category</div>
-              <MenuSelect
-                value={categoryFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'cat:other', label: 'Other (uncategorized)' },
-                  ...categories
-                    .filter((c) => c !== 'other')
-                    .map((c) => ({ value: `cat:${c}` as any, label: c })),
-                  ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
-                ]}
-                onChange={(v) => setCategoryFilter(v as any)}
-                width={170}
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <div className="fieldLabel">Sort</div>
-              <MenuSelect
-                value={sort}
-                options={[
-                  { value: 'dateDesc', label: 'Newest' },
-                  { value: 'dateAsc', label: 'Oldest' },
-                  { value: 'nameAsc', label: 'Name A→Z' },
-                  { value: 'nameDesc', label: 'Name Z→A' },
-                  { value: 'amountDesc', label: 'Amount ↓' },
-                  { value: 'amountAsc', label: 'Amount ↑' },
-                  { value: 'netDesc', label: 'Net ↓' },
-                  { value: 'netAsc', label: 'Net ↑' },
-                ]}
-                onChange={(v) => setSort(v as any)}
-                width={150}
-              />
-            </label>
-            <button type="button" onClick={clearFilters} disabled={activeFilterCount === 0}>
-              Clear Filters
-            </button>
-            <button type="button" onClick={selectAllFiltered} disabled={filtered.length === 0}>
-              Select all shown
-            </button>
-            <button type="button" onClick={autoCategorizeShown} disabled={autoCategorizeShownCount === 0}>
-              Auto-categorize from history{autoCategorizeShownCount > 0 ? ` (${autoCategorizeShownCount})` : ''}
-            </button>
-            <button type="button" onClick={openCategorizeWizard} disabled={uncategorizedExpenseGroups.length === 0}>
-              Categorize others (wizard){categorizeWizardEligibleCount > 0 ? ` (${categorizeWizardEligibleCount})` : ''}
-            </button>
-            {selectedIds.size > 0 ? (
-              <>
-                <button type="button" onClick={clearSelection}>
-                  Clear selection ({selectedIds.size})
+      {reconcileOpen ? (
+        <div
+          className="modalBackdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setReconcileOpen(false)
+              setReconcilePreviewTxId(null)
+            }
+          }}
+        >
+          <div className="modal reconcileModal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(980px, calc(100vw - 32px))' }}>
+            <div className="reconcileHeader">
+              <div style={{ minWidth: 0 }}>
+                <div className="modalTitle" style={{ marginBottom: 0 }}>Reconcile</div>
+                <div className="reconcileSubtitle">Scheduled vs actual • link bills/income to real transactions.</div>
+              </div>
+              <div className="reconcileMonthNav">
+                <button type="button" className="reconcileIconBtn" onClick={() => setReconcileMonth((v) => shiftMonthValue(v, -1))} aria-label="Previous month">
+                  ‹
                 </button>
-        {enableTaxPdf ? (
-          <button type="button" onClick={printSelection} className="btnPrimary">
-            Print / Save PDF
-          </button>
-        ) : null}
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Month</div>
+                  <input className="reconcileMonthInput" type="month" value={reconcileMonth} onChange={(e) => setReconcileMonth(e.target.value)} />
+                </label>
+                <button type="button" className="reconcileIconBtn" onClick={() => setReconcileMonth((v) => shiftMonthValue(v, 1))} aria-label="Next month">
+                  ›
+                </button>
+                <button
+                  type="button"
+                  className="reconcileIconBtn"
+                  onClick={() => {
+                    const now = new Date()
+                    setReconcileMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+                  }}
+                  aria-label="This month"
+                  title="This month"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+
+            {reconcileSuggestions.billMatches.length > 0 ? (
+              <>
+                <div className="reconcileSectionTitle">
+                  Bills matched <span className="pill">{reconcileSuggestions.billMatches.length}</span>
+                </div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.billMatches.map((m) => {
+                    const tx = personTransactions.find((t) => t.id === m.txId) ?? null
+                    const txAccount = tx ? state.accounts.find((a) => a.id === tx.accountId)?.name ?? 'Unassigned' : ''
+                    return (
+                      <div key={`${m.billId}:${m.txId}`} className="reconcileRow">
+                        <div className="reconcileRowMain">
+                          <div className="reconcileRowTitle">Bill: {m.name} • due {toDateInputValue(m.due)}</div>
+                          <div className="reconcileRowSub">Match: {tx ? `${tx.payee ?? 'Expense'} • ${toDateInputValue(tx.date)} • ${txAccount}` : ''}</div>
+                        </div>
+                        <div className="reconcileRowRight">
+                          <div className="reconcileAmount">{currency(m.amount, state.settings.displayCurrencyCode)}</div>
+                          <button type="button" className="reconcileBtn" onClick={() => openTransactionFromReconcile(m.txId)}>
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            className="reconcileBtnPrimary"
+                            onClick={() => dispatch({ type: 'bills/logPaymentFromTransaction', billId: m.billId, transactionId: m.txId })}
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </>
             ) : null}
+
+            {reconcileSuggestions.missingBills.length > 0 ? (
+              <>
+                <div className="reconcileSectionTitle">
+                  Bills missing a transaction <span className="pill">{reconcileSuggestions.missingBills.length}</span>
+                </div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.missingBills.map((m) => (
+                    <div key={`${m.billId}:${m.due.toISOString()}`} className="reconcileRow">
+                      <div className="reconcileRowMain">
+                        <div className="reconcileRowTitle">{m.name} • due {toDateInputValue(m.due)}</div>
+                        <div className="reconcileRowSub">No matching transaction found for this month.</div>
+                      </div>
+                      <div className="reconcileRowRight">
+                        <div className="reconcileAmount">{currency(m.amount, state.settings.displayCurrencyCode)}</div>
+                        <button type="button" className="reconcileBtnPrimary" onClick={() => dispatch({ type: 'bills/logPayment', id: m.billId, date: m.due })}>
+                          Mark paid
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {reconcileSuggestions.incomeMatches.length > 0 ? (
+              <>
+                <div className="reconcileSectionTitle">
+                  Income matched <span className="pill">{reconcileSuggestions.incomeMatches.length}</span>
+                </div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.incomeMatches.map((m) => {
+                    const tx = personTransactions.find((t) => t.id === m.txId) ?? null
+                    const txAccount = tx ? state.accounts.find((a) => a.id === tx.accountId)?.name ?? 'Unassigned' : ''
+                    return (
+                      <div key={`${m.incomeId}:${m.txId}`} className="reconcileRow">
+                        <div className="reconcileRowMain">
+                          <div className="reconcileRowTitle">Income: {m.name} • expected {toDateInputValue(m.due)}</div>
+                          <div className="reconcileRowSub">Match: {tx ? `${tx.payee ?? 'Income'} • ${toDateInputValue(tx.date)} • ${txAccount}` : ''}</div>
+                        </div>
+                        <div className="reconcileRowRight">
+                          <div className="reconcileAmount">{currency(m.amount, state.settings.displayCurrencyCode)}</div>
+                          <button type="button" className="reconcileBtn" onClick={() => openTransactionFromReconcile(m.txId)}>
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            className="reconcileBtnPrimary"
+                            onClick={() => dispatch({ type: 'incomes/logReceiptFromTransaction', incomeId: m.incomeId, transactionId: m.txId })}
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            {reconcileSuggestions.missingIncome.length > 0 ? (
+              <>
+                <div className="reconcileSectionTitle">
+                  Income missing a transaction <span className="pill">{reconcileSuggestions.missingIncome.length}</span>
+                </div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.missingIncome.map((m) => (
+                    <div key={`${m.incomeId}:${m.due.toISOString()}`} className="reconcileRow">
+                      <div className="reconcileRowMain">
+                        <div className="reconcileRowTitle">{m.name} • expected {toDateInputValue(m.due)}</div>
+                        <div className="reconcileRowSub">No matching transaction found for this month.</div>
+                      </div>
+                      <div className="reconcileRowRight">
+                        <div className="reconcileAmount">{currency(m.amount, state.settings.displayCurrencyCode)}</div>
+                        <button type="button" className="reconcileBtnPrimary" onClick={() => dispatch({ type: 'incomes/logReceipt', id: m.incomeId, date: m.due })}>
+                          Log receipt
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            <div className="reconcileSplit">
+              <div className="groupBox" style={{ marginTop: 0 }}>
+                <div className="groupTitle">Unlinked expenses <span className="pill">{reconcileSuggestions.unlinkedExpenses.length}</span></div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.unlinkedExpenses.slice(0, 50).map((t) => {
+                    const cat = expenseCategoryFromTransaction(t)
+                    const txAccount = state.accounts.find((a) => a.id === t.accountId)?.name ?? 'Unassigned'
+                    return (
+                      <div key={t.id} className="reconcileRow">
+                        <div className="reconcileRowMain">
+                          <div className="reconcileRowTitle">{t.payee ?? 'Expense'} • {cat.label}</div>
+                          <div className="reconcileRowSub">{toDateInputValue(t.date)} • {txAccount}</div>
+                        </div>
+                        <div className="reconcileRowRight">
+                          <div className="reconcileAmount">{currency(t.amount.value, state.settings.displayCurrencyCode)}</div>
+                          <button type="button" className="reconcileBtn" onClick={() => openTransactionFromReconcile(t.id)}>
+                            Open
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {reconcileSuggestions.unlinkedExpenses.length > 50 ? <div className="note">Showing first 50.</div> : null}
+                </div>
+              </div>
+              <div className="groupBox" style={{ marginTop: 0 }}>
+                <div className="groupTitle">Unlinked income <span className="pill">{reconcileSuggestions.unlinkedIncome.length}</span></div>
+                <div className="list reconcileList">
+                  {reconcileSuggestions.unlinkedIncome.slice(0, 50).map((t) => {
+                    const txAccount = state.accounts.find((a) => a.id === t.accountId)?.name ?? 'Unassigned'
+                    return (
+                      <div key={t.id} className="reconcileRow">
+                        <div className="reconcileRowMain">
+                          <div className="reconcileRowTitle">{t.payee ?? 'Income'}</div>
+                          <div className="reconcileRowSub">{toDateInputValue(t.date)} • {txAccount}</div>
+                        </div>
+                        <div className="reconcileRowRight">
+                          <div className="reconcileAmount">{currency(t.amount.value, state.settings.displayCurrencyCode)}</div>
+                          <button type="button" className="reconcileBtn" onClick={() => openTransactionFromReconcile(t.id)}>
+                            Open
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {reconcileSuggestions.unlinkedIncome.length > 50 ? <div className="note">Showing first 50.</div> : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="modalActions">
+              <button
+                type="button"
+                onClick={() => {
+                  setReconcileOpen(false)
+                  setReconcilePreviewTxId(null)
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
+      ) : null}
+
+      {reconcileOpen && reconcilePreviewTxId ? (
+        <div
+          className="modalBackdrop"
+          style={{ zIndex: 1100, background: 'rgba(0, 0, 0, 0.35)' }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setReconcilePreviewTxId(null)
+          }}
+        >
+          {(() => {
+            const t = personTransactions.find((x) => x.id === reconcilePreviewTxId) ?? null
+            const accountName = t ? state.accounts.find((a) => a.id === t.accountId)?.name ?? 'Unassigned' : ''
+            const toAccountName = t ? state.accounts.find((a) => a.id === t.toAccountId)?.name ?? 'Unassigned' : ''
+            const title = t ? (t.payee?.trim() ? t.payee.trim() : t.kind === 'income' ? 'Income' : t.kind === 'expense' ? 'Expense' : 'Transfer') : 'Transaction'
+            const typeLabel = t ? (t.kind === 'income' ? 'Income' : t.kind === 'expense' ? 'Expense' : 'Transfer') : ''
+            const catLabel =
+              t && t.kind === 'expense'
+                ? (t.customCategoryName ?? '').trim()
+                  ? (t.customCategoryName ?? '').trim()
+                  : expenseCategoryFromTransaction(t).label
+                : ''
+            const tagsText = t ? uniqueTags(t.tags ?? []).join(', ') : ''
+            const presetValue =
+              t && t.kind === 'expense'
+                ? ((t.customCategoryName ?? '').trim()
+                    ? `custom:${(t.customCategoryName ?? '').trim()}`
+                    : `cat:${(t.category ?? 'other') as any}`) as any
+                : ('cat:other' as any)
+
+            return (
+              <div className="modal txnPreviewModal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(720px, calc(100vw - 32px))' }}>
+                <div className="txnPreviewHeader">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="modalTitle" style={{ marginBottom: 0 }}>{title}</div>
+                    <div className="txnPreviewSubtitle">
+                      {t ? `${typeLabel} • ${toDateInputValue(t.date)} • ${currency(t.amount.value, state.settings.displayCurrencyCode)}` : typeLabel}
+                    </div>
+                  </div>
+                </div>
+                {t ? (
+                  <>
+                    {reconcilePreviewEdit ? (
+                      <div className="form txnPreviewForm">
+                        <div className="groupBox" style={{ marginTop: 12 }}>
+                          <div className="groupTitle">Edit</div>
+                          <div className="fieldRow" style={{ marginTop: 10 }}>
+                            <label className="field">
+                              <div className="fieldLabel">Type</div>
+                              <MenuSelect
+                                value={t.kind as any}
+                                options={[
+                                  { value: 'expense', label: 'Expense' },
+                                  { value: 'income', label: 'Income' },
+                                  { value: 'transfer', label: 'Transfer' },
+                                ]}
+                                onChange={(v) => {
+                                  const kind = v as any
+                                  let next: Transaction = { ...t, kind }
+                                  if (next.kind !== 'transfer') next = { ...next, toAccountId: null }
+                                  if (next.kind !== 'expense') next = { ...next, category: null, customCategoryName: null }
+                                  dispatch({ type: 'transactions/update', transaction: next })
+                                }}
+                                width={180}
+                              />
+                            </label>
+                            <label className="field">
+                              <div className="fieldLabel">Date</div>
+                              <input
+                                type="date"
+                                value={toDateInputValue(t.date)}
+                                onChange={(e) => dispatch({ type: 'transactions/update', transaction: { ...t, date: fromDateInputValue(e.target.value) } })}
+                              />
+                            </label>
+                            <label className="field">
+                              <div className="fieldLabel">Amount</div>
+                              <input
+                                type="number"
+                                value={String(t.amount.value)}
+                                onChange={(e) => {
+                                  const num = Number(e.target.value)
+                                  dispatch({ type: 'transactions/update', transaction: { ...t, amount: { ...t.amount, value: Number.isFinite(num) ? num : 0 } } })
+                                }}
+                              />
+                            </label>
+                            <label className="field">
+                              <div className="fieldLabel">Account</div>
+                              <MenuSelect
+                                value={(t.accountId ?? 'none') as any}
+                                options={[
+                                  { value: 'none', label: 'Unassigned' },
+                                  ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
+                                ]}
+                                onChange={(v) => dispatch({ type: 'transactions/update', transaction: { ...t, accountId: v === 'none' ? null : (v as any) } })}
+                                width={240}
+                              />
+                            </label>
+                            {t.kind === 'transfer' ? (
+                              <label className="field">
+                                <div className="fieldLabel">To account</div>
+                                <MenuSelect
+                                  value={(t.toAccountId ?? 'none') as any}
+                                  options={[
+                                    { value: 'none', label: 'Unassigned' },
+                                    ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
+                                  ]}
+                                  onChange={(v) => dispatch({ type: 'transactions/update', transaction: { ...t, toAccountId: v === 'none' ? null : (v as any) } })}
+                                  width={240}
+                                />
+                              </label>
+                            ) : null}
+                            <label className="field">
+                              <div className="fieldLabel">Payee</div>
+                              <input value={t.payee ?? ''} onChange={(e) => dispatch({ type: 'transactions/update', transaction: { ...t, payee: e.target.value || null } })} />
+                            </label>
+                            {t.kind === 'expense' ? (
+                              <label className="field">
+                                <div className="fieldLabel">Category</div>
+                                <MenuSelect
+                                  value={presetValue}
+                                  options={[
+                                    ...categories.map((c) => ({ value: `cat:${c}` as any, label: c })),
+                                    ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
+                                  ]}
+                                  onChange={(v) => {
+                                    const next = applyExpensePreset(t, String(v ?? 'cat:other'))
+                                    dispatch({ type: 'transactions/update', transaction: next })
+                                  }}
+                                  width={240}
+                                />
+                              </label>
+                            ) : null}
+                            <label className="field">
+                              <div className="fieldLabel">Tags</div>
+                              <input
+                                value={uniqueTags(t.tags ?? []).join(', ')}
+                                onChange={(e) => {
+                                  const nextTags = uniqueTags(
+                                    String(e.target.value ?? '')
+                                      .split(',')
+                                      .map((x) => x.trim())
+                                      .filter((x) => x.length > 0)
+                                  )
+                                  dispatch({ type: 'transactions/update', transaction: { ...t, tags: nextTags } })
+                                }}
+                              />
+                            </label>
+                            <label className="field" style={{ gridColumn: '1 / -1' }}>
+                              <div className="fieldLabel">Notes</div>
+                              <textarea value={t.notes ?? ''} onChange={(e) => dispatch({ type: 'transactions/update', transaction: { ...t, notes: e.target.value || null } })} />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="groupBox" style={{ marginTop: 12 }}>
+                          <div className="groupTitle">Details</div>
+                          <div className="fieldRow" style={{ marginTop: 10 }}>
+                            <label className="field">
+                              <div className="fieldLabel">Date</div>
+                              <div className="note" style={{ marginTop: 4 }}>{toDateInputValue(t.date)}</div>
+                            </label>
+                            <label className="field">
+                              <div className="fieldLabel">Amount</div>
+                              <div className="note" style={{ marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{currency(t.amount.value, state.settings.displayCurrencyCode)}</div>
+                            </label>
+                            <label className="field">
+                              <div className="fieldLabel">Account</div>
+                              <div className="note" style={{ marginTop: 4 }}>{t.kind === 'transfer' ? `${accountName} → ${toAccountName}` : accountName}</div>
+                            </label>
+                            {t.kind === 'expense' ? (
+                              <label className="field">
+                                <div className="fieldLabel">Category</div>
+                                <div className="note" style={{ marginTop: 4 }}>{catLabel || 'Other'}</div>
+                              </label>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {tagsText ? (
+                          <div className="groupBox" style={{ marginTop: 12 }}>
+                            <div className="groupTitle">Tags</div>
+                            <div className="note" style={{ marginTop: 10 }}>{tagsText}</div>
+                          </div>
+                        ) : null}
+
+                        {(t.notes ?? '').trim() ? (
+                          <div className="groupBox" style={{ marginTop: 12 }}>
+                            <div className="groupTitle">Notes</div>
+                            <div className="note" style={{ marginTop: 10, whiteSpace: 'pre-wrap' }}>{String(t.notes ?? '').trim()}</div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+
+                  </>
+                ) : (
+                  <div className="note" style={{ marginTop: 12 }}>Transaction not found.</div>
+                )}
+
+                <div className="modalActions">
+                  <button type="button" onClick={() => setReconcilePreviewTxId(null)}>
+                    Close
+                  </button>
+                  {t ? (
+                    <button
+                      type="button"
+                      className="btnPrimary"
+                      onClick={() => setReconcilePreviewEdit((v) => !v)}
+                    >
+                      {reconcilePreviewEdit ? 'Done' : 'Open in editor'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      ) : null}
+      <div className="toolbarWrap">
+        <div className="row" style={{ marginBottom: 8 }}>
+          <div className="rowActions" style={{ flex: 1, alignItems: 'center' }}>
+            <button type="button" onClick={importFileClick} disabled={importingPdf} className="btnWithIcon">
+              <span className="btnIcon">
+                <ImportIcon />
+              </span>
+              Import
+            </button>
+            <button type="button" onClick={createTransaction} className="btnPrimary btnIconOnly" aria-label="Add transaction" title="Add">
+              <PlusIcon />
+            </button>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" style={{ width: 280 }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.pdf,text/csv,application/pdf"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.currentTarget.files?.[0] ?? null
+                e.currentTarget.value = ''
+                void onPickImportFile(f)
+              }}
+            />
+          </div>
+          <div className="rowActions" style={{ alignItems: 'center' }}>
+            <div className="segmented" role="group" aria-label="View mode" ref={viewModeAnchorRef}>
+              <button type="button" className={viewMode === 'standard' ? 'active' : ''} onClick={() => setViewMode('standard')}>
+                Standard
+              </button>
+              <button type="button" className={viewMode === 'detailed' ? 'active' : ''} onClick={() => setViewMode('detailed')}>
+                Detailed
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="toolbarSubtitle">
+          {filtered.length.toLocaleString()} / {personTransactions.length.toLocaleString()} shown
+          {filterSummary ? ` • ${filterSummary}` : ''}
+          {peopleSettings.peopleEnabled && activePerson ? ` • Person: ${activePerson.name}` : ''}
+        </div>
+        {showFilters ? (
+          <div className="row" style={{ marginTop: 8 }}>
+            <div className="rowActions">
+              <button type="button" onClick={openCategorizeWizard} disabled={uncategorizedExpenseGroups.length === 0}>
+                Categorize Wizard{categorizeWizardEligibleCount > 0 ? ` (${categorizeWizardEligibleCount})` : ''}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      {selectedIds.size > 0 && selectionPos && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="selectionDock">
+              <div className="selectionBar" style={{ left: selectionPos.left, top: selectionPos.top, width: selectionPos.width }}>
+                <div className="selectionMeta">
+                  <span className="pill">Selected {selectedIds.size}</span>
+                  <button type="button" className="selectionClear" onClick={clearSelection}>
+                    Clear
+                  </button>
+                </div>
+                <div className="selectionActions">
+                  <button type="button" className="selTile" disabled={!enableTaxPdf} onClick={printSelection}>
+                    <span className="selIcon">
+                      <PrinterIcon />
+                    </span>
+                    <span className="selLabel">Print / PDF</span>
+                  </button>
+                  <button type="button" className="selTile" onClick={() => setReconcileOpen(true)}>
+                    <span className="selIcon">
+                      <CheckIcon />
+                    </span>
+                    <span className="selLabel">Reconcile</span>
+                  </button>
+                  <button type="button" className="selTile" disabled={autoCategorizeShownCount === 0} onClick={autoCategorizeShown}>
+                    <span className="selIcon">
+                      <PercentIcon />
+                    </span>
+                    <span className="selLabel">Auto-categorize</span>
+                  </button>
+                  <button type="button" className="selTile danger" onClick={deleteSelectionTransactions}>
+                    <span className="selIcon">
+                      <TrashIcon />
+                    </span>
+                    <span className="selLabel">Delete Selected</span>
+                  </button>
+                  <button type="button" className="selTile danger" disabled={state.transactions.length === 0} onClick={deleteAllTransactions}>
+                    <span className="selIcon">
+                      <TrashIcon />
+                    </span>
+                    <span className="selLabel">Delete All</span>
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       <div className={showEditor ? 'split stickyDetail' : 'split noDetail'}>
         <div className="list" ref={listRef}>
+          <div className="listControls">
+            <div className="listControlsRow rowActions" style={{ alignItems: 'end' }}>
+              <button type="button" onClick={selectAllFiltered} disabled={filtered.length === 0}>
+                Select shown
+              </button>
+              {showFilters ? (
+                <button type="button" onClick={clearFilters} disabled={activeFilterCount === 0}>
+                  Clear Filters
+                </button>
+              ) : null}
+              <label className="field" style={{ margin: 0 }}>
+                <div className="fieldLabel">Sort</div>
+                <MenuSelect
+                  value={sort}
+                  options={[
+                    { value: 'dateDesc', label: 'Newest' },
+                    { value: 'dateAsc', label: 'Oldest' },
+                    { value: 'nameAsc', label: 'Name A→Z' },
+                    { value: 'nameDesc', label: 'Name Z→A' },
+                    { value: 'amountDesc', label: 'Amount ↓' },
+                    { value: 'amountAsc', label: 'Amount ↑' },
+                    { value: 'netDesc', label: 'Net ↓' },
+                    { value: 'netAsc', label: 'Net ↑' },
+                  ]}
+                  onChange={(v) => setSort(v as any)}
+                  width={150}
+                />
+              </label>
+              {showFilters ? (
+                <>
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Account</div>
+                  <MenuSelect
+                    value={accountFilterId}
+                    options={[
+                      { value: 'all', label: 'All Accounts' },
+                      ...activeAccounts.map((a) => ({ value: a.id as any, label: a.name })),
+                    ]}
+                    onChange={(v) => setAccountFilterId(v as any)}
+                    width={220}
+                  />
+                </label>
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Type</div>
+                  <MenuSelect
+                    value={kindFilter}
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'expense', label: 'Expenses' },
+                      { value: 'income', label: 'Income' },
+                      { value: 'transfer', label: 'Transfers' },
+                    ]}
+                    onChange={(v) => setKindFilter(v as any)}
+                    width={150}
+                  />
+                </label>
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Source</div>
+                  <MenuSelect
+                    value={sourceFilter}
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'imported', label: 'Imported' },
+                      { value: 'manual', label: 'Manual' },
+                    ]}
+                    onChange={(v) => setSourceFilter(v as any)}
+                    width={150}
+                  />
+                </label>
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Date</div>
+                  <MenuSelect
+                    value={dateFilter}
+                    options={[
+                      { value: 'all', label: 'All time' },
+                      { value: 'last30', label: 'Last 30 days' },
+                      { value: 'last90', label: 'Last 90 days' },
+                      { value: 'thisMonth', label: 'This month' },
+                      { value: 'range', label: 'Custom range' },
+                    ]}
+                    onChange={(v) => setDateFilter(v as any)}
+                    width={160}
+                  />
+                </label>
+                {dateFilter === 'range' ? (
+                  <>
+                    <label className="field" style={{ margin: 0 }}>
+                      <div className="fieldLabel">From</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => setDateFrom(e.target.value)}
+                          style={{
+                            appearance: 'none',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface)',
+                            color: 'var(--text-h)',
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            height: 34,
+                            width: 140,
+                          }}
+                        />
+                        <div style={{ display: 'grid', gridAutoFlow: 'column', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => setDateFrom((v) => shiftDateValue(v, -1, 0))}
+                            style={{ padding: '4px 6px', fontSize: 11 }}
+                          >
+                            -1y
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDateFrom((v) => shiftDateValue(v, 1, 0))}
+                            style={{ padding: '4px 6px', fontSize: 11 }}
+                          >
+                            +1y
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDateFrom((v) => shiftDateValue(v, 0, -1))}
+                            style={{ padding: '4px 6px', fontSize: 11 }}
+                          >
+                            -1m
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDateFrom((v) => shiftDateValue(v, 0, 1))}
+                            style={{ padding: '4px 6px', fontSize: 11 }}
+                          >
+                            +1m
+                          </button>
+                          <button type="button" onClick={() => setDateFrom('')} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </label>
+                    <label className="field" style={{ margin: 0 }}>
+                      <div className="fieldLabel">To</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => setDateTo(e.target.value)}
+                          style={{
+                            appearance: 'none',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface)',
+                            color: 'var(--text-h)',
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            height: 34,
+                            width: 140,
+                          }}
+                        />
+                        <div style={{ display: 'grid', gridAutoFlow: 'column', gap: 6 }}>
+                          <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, -1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            -1y
+                          </button>
+                          <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 1, 0))} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            +1y
+                          </button>
+                          <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 0, -1))} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            -1m
+                          </button>
+                          <button type="button" onClick={() => setDateTo((v) => shiftDateValue(v, 0, 1))} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            +1m
+                          </button>
+                          <button type="button" onClick={() => setDateTo(toDateInputValue(new Date()))} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            Today
+                          </button>
+                          <button type="button" onClick={() => setDateTo('')} style={{ padding: '4px 6px', fontSize: 11 }}>
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </label>
+                  </>
+                ) : null}
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Payee</div>
+                  <MenuSelect
+                    value={payeeFilter as any}
+                    options={[
+                      { value: 'all', label: 'All' },
+                      ...payeeGroups.map((x) => ({ value: x.key as any, label: `${x.key} (${x.count})` })),
+                    ]}
+                    onChange={(v) => setPayeeFilter(v as any)}
+                    width={340}
+                  />
+                </label>
+                <label className="field" style={{ margin: 0 }}>
+                  <div className="fieldLabel">Category</div>
+                  <MenuSelect
+                    value={categoryFilter}
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'cat:other', label: 'Other (uncategorized)' },
+                      ...categories
+                        .filter((c) => c !== 'other')
+                        .map((c) => ({ value: `cat:${c}` as any, label: c })),
+                      ...customExpenseCategoryNames.map((c) => ({ value: `custom:${c}` as any, label: c })),
+                    ]}
+                    onChange={(v) => setCategoryFilter(v as any)}
+                    width={170}
+                  />
+                </label>
+                </>
+              ) : null}
+            </div>
+          </div>
           {isListGated ? (
             <div className="empty">
               <div>Lots of transactions ({personTransactions.length}). Apply filters to load them.</div>

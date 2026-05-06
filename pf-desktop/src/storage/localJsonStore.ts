@@ -8,6 +8,7 @@ import {
   type Goal,
   type Income,
   type Payment,
+  type Reminder,
   type Transaction,
   iso8601NoMillis,
   parseISO8601,
@@ -22,6 +23,7 @@ export const DATA_FILES = {
   incomes: 'incomes.json',
   accounts: 'accounts.json',
   transactions: 'transactions.json',
+  reminders: 'reminders.json',
   invoices: 'invoices.json',
   goals: 'goals.json',
   debts: 'debts.json',
@@ -48,6 +50,7 @@ export interface LoadedDatasets {
   incomes: Income[]
   accounts: Account[]
   transactions: Transaction[]
+  reminders: Reminder[]
   invoices: Invoice[]
   goals: Goal[]
   debts: Debt[]
@@ -66,6 +69,7 @@ export function loadAllFromLocalStorage(fallbackSettings: AppSettings): LoadedDa
     incomes: loadArrayFromLocalStorage('incomes', decodeIncome),
     accounts: loadArrayFromLocalStorage('accounts', decodeAccount),
     transactions: txLoaded.transactions,
+    reminders: loadArrayFromLocalStorage('reminders', decodeReminder),
     invoices: loadArrayFromLocalStorage('invoices', decodeInvoice),
     goals: loadArrayFromLocalStorage('goals', decodeGoal),
     debts: loadArrayFromLocalStorage('debts', decodeDebt),
@@ -83,6 +87,7 @@ export function saveAllToLocalStorage(data: LoadedDatasets): void {
   saveArrayToLocalStorage('incomes', data.incomes, encodeIncome)
   saveArrayToLocalStorage('accounts', data.accounts, encodeAccount)
   saveTransactionsForSettingsToLocalStorage(settingsWithCounts, data.transactions)
+  saveArrayToLocalStorage('reminders', data.reminders, encodeReminder)
   saveArrayToLocalStorage('invoices', data.invoices, encodeInvoice)
   saveArrayToLocalStorage('goals', data.goals, encodeGoal)
   saveArrayToLocalStorage('debts', data.debts, encodeDebt)
@@ -95,7 +100,7 @@ export function loadSettingsFromLocalStorage(fallback: AppSettings): AppSettings
   try {
     const v = safeParseJSON(raw)
     if (v && typeof v === 'object') {
-      return v as AppSettings
+      return { ...fallback, ...(v as any) } as AppSettings
     }
     return fallback
   } catch {
@@ -154,7 +159,12 @@ type EncodedInvoice = Omit<Invoice, 'createdAt' | 'invoiceDate' | 'attachments'>
 }
 type EncodedIncome = Omit<Income, 'nextPayDate' | 'receipts'> & { nextPayDate: string; receipts: EncodedPayment[] }
 type EncodedTransaction = Omit<Transaction, 'date'> & { date: string }
-type EncodedGoal = Omit<Goal, 'targetDate'> & { targetDate?: string | null }
+type EncodedReminder = Omit<Reminder, 'when' | 'createdAt' | 'completedAt'> & {
+  when: string
+  createdAt: string
+  completedAt?: string | null
+}
+type EncodedGoal = Omit<Goal, 'targetDate' | 'autoMonthlyNextDate'> & { targetDate?: string | null; autoMonthlyNextDate?: string | null }
 type EncodedTransactionsEnvelope = { version: 2; byPerson: Record<string, EncodedTransaction[]> }
 
 function encodePayment(p: Payment): EncodedPayment {
@@ -248,6 +258,35 @@ function encodeTransaction(t: Transaction): EncodedTransaction {
 function decodeTransaction(x: unknown): Transaction {
   const o = x as EncodedTransaction
   return { ...o, date: parseISO8601(o.date), tags: o.tags ?? [] }
+}
+
+function encodeReminder(r: Reminder): EncodedReminder {
+  return {
+    ...r,
+    when: iso8601NoMillis(r.when),
+    createdAt: iso8601NoMillis(r.createdAt),
+    completedAt: r.completedAt ? iso8601NoMillis(r.completedAt) : r.completedAt ?? null,
+  }
+}
+function decodeReminder(x: unknown): Reminder {
+  const o = x as EncodedReminder
+  const listRaw = (o as any).remindMinutesBeforeList
+  const list =
+    Array.isArray(listRaw) && listRaw.length > 0 ? listRaw.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : null
+  const single = (o as any).remindMinutesBefore == null ? null : Number((o as any).remindMinutesBefore)
+  return {
+    ...o,
+    title: String((o as any).title ?? '').trim(),
+    when: parseISO8601(o.when),
+    createdAt: parseISO8601(o.createdAt),
+    completedAt: o.completedAt ? parseISO8601(o.completedAt) : null,
+    allDay: Boolean((o as any).allDay),
+    recurrence: (o as any).recurrence === 'weekly' || (o as any).recurrence === 'monthly' || (o as any).recurrence === 'yearly' ? (o as any).recurrence : 'once',
+    priority:
+      (o as any).priority === 'low' || (o as any).priority === 'high' || (o as any).priority === 'critical' ? (o as any).priority : 'medium',
+    remindMinutesBefore: single == null || !Number.isFinite(single) ? null : single,
+    remindMinutesBeforeList: list,
+  }
 }
 
 function parseEncodedTransactionsRawFromLocalStorage(): unknown {
@@ -364,11 +403,19 @@ function saveTransactionsForSettingsToLocalStorage(settings: AppSettings, active
 }
 
 function encodeGoal(g: Goal): EncodedGoal {
-  return { ...g, targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null }
+  return {
+    ...g,
+    targetDate: g.targetDate ? iso8601NoMillis(g.targetDate) : g.targetDate ?? null,
+    autoMonthlyNextDate: g.autoMonthlyNextDate ? iso8601NoMillis(g.autoMonthlyNextDate) : g.autoMonthlyNextDate ?? null,
+  }
 }
 function decodeGoal(x: unknown): Goal {
   const o = x as EncodedGoal
-  return { ...o, targetDate: o.targetDate ? parseISO8601(o.targetDate) : null }
+  return {
+    ...o,
+    targetDate: o.targetDate ? parseISO8601(o.targetDate) : null,
+    autoMonthlyNextDate: o.autoMonthlyNextDate ? parseISO8601(o.autoMonthlyNextDate) : null,
+  }
 }
 
 function encodeDebt(d: Debt): Debt {

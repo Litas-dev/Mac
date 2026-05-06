@@ -24,7 +24,7 @@ import {
   processAutoPayments,
   startOfDay,
 } from '../domain/models'
-import type { Transaction } from '../domain/models'
+import type { Goal, Reminder, Transaction } from '../domain/models'
 import { scheduleAllNotifications } from '../notifications/notificationScheduler'
 import { applyAutostart } from '../desktop/autostart'
 import { loadPreferredDisplayCurrencyCode, savePreferredDisplayCurrencyCode } from '../storage/userPrefs'
@@ -47,6 +47,387 @@ function saveOnboardingFlag(v: boolean): void {
   }
 }
 
+function seedUkComplianceReminders(params: { now: Date; personId: string | null }): Reminder[] {
+  const { now, personId } = params
+  const createdAt = now
+  const remindMinutesBeforeList = [43200, 20160, 10080, 1440]
+
+  const jan31 = nextAnnualDate({ monthIndex: 0, dayOfMonth: 31, now })
+  const jul31 = nextAnnualDate({ monthIndex: 6, dayOfMonth: 31, now })
+  const apr5 = nextAnnualDate({ monthIndex: 3, dayOfMonth: 5, now })
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: 'Tax return & payment deadline',
+      when: jan31,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'critical',
+      notes: 'Submit your Self Assessment tax return and pay any tax owed. Missing this results in penalties.',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Second tax payment (payment on account)',
+      when: jul31,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'high',
+      notes: 'Second advance payment towards next year’s tax bill. Amount is usually based on previous year.',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'End of tax year',
+      when: apr5,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'medium',
+      notes: 'Last day of the UK tax year. Income after this date counts toward the next tax year.',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+  ]
+}
+
+function nextAnnualDate(params: { monthIndex: number; dayOfMonth: number; now: Date }): Date {
+  const { monthIndex, dayOfMonth, now } = params
+  const today = startOfDay(now).getTime()
+  const y = now.getFullYear()
+  const d = new Date(y, monthIndex, dayOfMonth, 0, 0, 0, 0)
+  if (startOfDay(d).getTime() <= today) d.setFullYear(y + 1)
+  return d
+}
+
+function seedNorwayComplianceReminders(params: { now: Date; personId: string | null }): Reminder[] {
+  const { now, personId } = params
+  const createdAt = now
+  const remindMinutesBeforeList = [43200, 20160, 10080, 1440]
+
+  const apr30 = nextAnnualDate({ monthIndex: 3, dayOfMonth: 30, now })
+  const mar15 = nextAnnualDate({ monthIndex: 2, dayOfMonth: 15, now })
+  const jun15 = nextAnnualDate({ monthIndex: 5, dayOfMonth: 15, now })
+  const sep15 = nextAnnualDate({ monthIndex: 8, dayOfMonth: 15, now })
+  const dec15 = nextAnnualDate({ monthIndex: 11, dayOfMonth: 15, now })
+  const may31 = nextAnnualDate({ monthIndex: 4, dayOfMonth: 31, now })
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: 'Tax return deadline (Skattemelding)',
+      when: apr30,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'critical',
+      notes: 'Deadline to submit your Norwegian tax return (Skattemelding).',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Advance tax instalment (Forskuddsskatt): 15 March',
+      when: mar15,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'high',
+      notes: 'Common due date for advance tax (forskuddsskatt) when you pay tax yourself (e.g. self-employed).',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Advance tax instalment (Forskuddsskatt): 15 June',
+      when: jun15,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'high',
+      notes: 'Common due date for advance tax (forskuddsskatt) when you pay tax yourself (e.g. self-employed).',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Advance tax instalment (Forskuddsskatt): 15 September',
+      when: sep15,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'high',
+      notes: 'Common due date for advance tax (forskuddsskatt) when you pay tax yourself (e.g. self-employed).',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Advance tax instalment (Forskuddsskatt): 15 December',
+      when: dec15,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'high',
+      notes: 'Common due date for advance tax (forskuddsskatt) when you pay tax yourself (e.g. self-employed).',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Optional: extra tax payment to reduce interest',
+      when: may31,
+      allDay: true,
+      recurrence: 'yearly',
+      priority: 'medium',
+      notes: 'If you expect underpaid tax, an additional payment before 31 May can reduce interest.',
+      remindMinutesBefore: null,
+      remindMinutesBeforeList,
+      completedAt: null,
+      personId,
+      createdAt,
+    },
+  ]
+}
+
+const UK_COMPLIANCE_TITLES = [
+  'Tax return & payment deadline',
+  'Second tax payment (payment on account)',
+  'End of tax year',
+]
+const NO_COMPLIANCE_TITLES = [
+  'Tax return deadline (Skattemelding)',
+  'Advance tax instalment (Forskuddsskatt): 15 March',
+  'Advance tax instalment (Forskuddsskatt): 15 June',
+  'Advance tax instalment (Forskuddsskatt): 15 September',
+  'Advance tax instalment (Forskuddsskatt): 15 December',
+  'Optional: extra tax payment to reduce interest',
+]
+
+function applyJurisdictionComplianceReminders(params: {
+  reminders: Reminder[]
+  jurisdiction: 'UK' | 'NO'
+  now: Date
+  personId: string | null
+}): Reminder[] {
+  const { reminders, jurisdiction, now, personId } = params
+  const remove = new Set([...UK_COMPLIANCE_TITLES, ...NO_COMPLIANCE_TITLES].map((t) => normalizeTitle(t)))
+  const stripped = reminders.filter((r) => !remove.has(normalizeTitle(r.title)))
+  const additions =
+    jurisdiction === 'UK' ? seedUkComplianceReminders({ now, personId }) : seedNorwayComplianceReminders({ now, personId })
+  return mergeSeededReminders(stripped, additions)
+}
+
+const UK_HOLIDAY_NOTE = 'UK bank holiday.'
+const NO_HOLIDAY_NOTE = 'Norway public holiday.'
+
+function seedUkBankHolidayReminders(params: { now: Date; yearsAhead: number }): Reminder[] {
+  const { now, yearsAhead } = params
+  const createdAt = now
+  const startYear = now.getFullYear()
+  const out: Reminder[] = []
+  for (let y = startYear; y <= startYear + Math.max(0, yearsAhead); y += 1) {
+    for (const h of ukBankHolidaysEnglandWales(y)) {
+      out.push({
+        id: crypto.randomUUID(),
+        title: h.title,
+        when: startOfDay(h.when),
+        allDay: true,
+        recurrence: 'once',
+        priority: 'low',
+        notes: UK_HOLIDAY_NOTE,
+        remindMinutesBefore: null,
+        remindMinutesBeforeList: null,
+        completedAt: null,
+        personId: null,
+        createdAt,
+      })
+    }
+  }
+  return out
+}
+
+function seedNorwayPublicHolidayReminders(params: { now: Date; yearsAhead: number }): Reminder[] {
+  const { now, yearsAhead } = params
+  const createdAt = now
+  const startYear = now.getFullYear()
+  const out: Reminder[] = []
+  for (let y = startYear; y <= startYear + Math.max(0, yearsAhead); y += 1) {
+    for (const h of norwayPublicHolidays(y)) {
+      out.push({
+        id: crypto.randomUUID(),
+        title: h.title,
+        when: startOfDay(h.when),
+        allDay: true,
+        recurrence: 'once',
+        priority: 'low',
+        notes: NO_HOLIDAY_NOTE,
+        remindMinutesBefore: null,
+        remindMinutesBeforeList: null,
+        completedAt: null,
+        personId: null,
+        createdAt,
+      })
+    }
+  }
+  return out
+}
+
+function applyJurisdictionHolidayReminders(params: {
+  reminders: Reminder[]
+  jurisdiction: 'UK' | 'NO'
+  now: Date
+  yearsAhead: number
+}): Reminder[] {
+  const { reminders, jurisdiction, now, yearsAhead } = params
+  const stripped = reminders.filter((r) => r.notes !== UK_HOLIDAY_NOTE && r.notes !== NO_HOLIDAY_NOTE)
+  if (jurisdiction === 'UK') return mergeSeededReminders(stripped, seedUkBankHolidayReminders({ now, yearsAhead }))
+  if (jurisdiction === 'NO') return mergeSeededReminders(stripped, seedNorwayPublicHolidayReminders({ now, yearsAhead }))
+  return reminders
+}
+
+function ukBankHolidaysEnglandWales(year: number): Array<{ title: string; when: Date }> {
+  const out: Array<{ title: string; when: Date }> = []
+  out.push({ title: "Bank Holiday: New Year's Day", when: observedNewYearsDay(year) })
+
+  const easter = easterSunday(year)
+  out.push({ title: 'Bank Holiday: Good Friday', when: addDaysLocal(easter, -2) })
+  out.push({ title: 'Bank Holiday: Easter Monday', when: addDaysLocal(easter, 1) })
+
+  out.push({ title: 'Bank Holiday: Early May', when: firstMondayOfMonth(year, 4) })
+  out.push({ title: 'Bank Holiday: Spring', when: lastMondayOfMonth(year, 4) })
+  out.push({ title: 'Bank Holiday: Summer', when: lastMondayOfMonth(year, 7) })
+
+  const xmas = observedChristmasAndBoxing(year)
+  out.push({ title: 'Bank Holiday: Christmas Day', when: xmas.christmas })
+  out.push({ title: 'Bank Holiday: Boxing Day', when: xmas.boxing })
+  return out
+}
+
+function norwayPublicHolidays(year: number): Array<{ title: string; when: Date }> {
+  const out: Array<{ title: string; when: Date }> = []
+  out.push({ title: "Public Holiday: New Year's Day", when: new Date(year, 0, 1, 0, 0, 0, 0) })
+  out.push({ title: 'Public Holiday: Labour Day (1 May)', when: new Date(year, 4, 1, 0, 0, 0, 0) })
+  out.push({ title: 'Public Holiday: Constitution Day (17 May)', when: new Date(year, 4, 17, 0, 0, 0, 0) })
+
+  const easter = easterSunday(year)
+  out.push({ title: 'Public Holiday: Maundy Thursday', when: addDaysLocal(easter, -3) })
+  out.push({ title: 'Public Holiday: Good Friday', when: addDaysLocal(easter, -2) })
+  out.push({ title: 'Public Holiday: Easter Sunday', when: addDaysLocal(easter, 0) })
+  out.push({ title: 'Public Holiday: Easter Monday', when: addDaysLocal(easter, 1) })
+  out.push({ title: 'Public Holiday: Ascension Day', when: addDaysLocal(easter, 39) })
+  out.push({ title: 'Public Holiday: Whit Sunday (Pentecost)', when: addDaysLocal(easter, 49) })
+  out.push({ title: 'Public Holiday: Whit Monday', when: addDaysLocal(easter, 50) })
+
+  out.push({ title: 'Public Holiday: Christmas Day', when: new Date(year, 11, 25, 0, 0, 0, 0) })
+  out.push({ title: 'Public Holiday: Second Day of Christmas', when: new Date(year, 11, 26, 0, 0, 0, 0) })
+  return out
+}
+
+function observedNewYearsDay(year: number): Date {
+  const d = new Date(year, 0, 1, 0, 0, 0, 0)
+  const dow = d.getDay()
+  if (dow === 6) return new Date(year, 0, 3, 0, 0, 0, 0)
+  if (dow === 0) return new Date(year, 0, 2, 0, 0, 0, 0)
+  return d
+}
+
+function observedChristmasAndBoxing(year: number): { christmas: Date; boxing: Date } {
+  const xmas = new Date(year, 11, 25, 0, 0, 0, 0)
+  const dow = xmas.getDay()
+  if (dow === 6) {
+    return { christmas: new Date(year, 11, 27, 0, 0, 0, 0), boxing: new Date(year, 11, 28, 0, 0, 0, 0) }
+  }
+  if (dow === 0) {
+    return { christmas: new Date(year, 11, 27, 0, 0, 0, 0), boxing: new Date(year, 11, 26, 0, 0, 0, 0) }
+  }
+  if (dow === 5) {
+    return { christmas: xmas, boxing: new Date(year, 11, 28, 0, 0, 0, 0) }
+  }
+  return { christmas: xmas, boxing: new Date(year, 11, 26, 0, 0, 0, 0) }
+}
+
+function firstMondayOfMonth(year: number, monthIndex: number): Date {
+  const d = new Date(year, monthIndex, 1, 0, 0, 0, 0)
+  while (d.getDay() !== 1) d.setDate(d.getDate() + 1)
+  return d
+}
+
+function lastMondayOfMonth(year: number, monthIndex: number): Date {
+  const d = new Date(year, monthIndex + 1, 0, 0, 0, 0, 0)
+  while (d.getDay() !== 1) d.setDate(d.getDate() - 1)
+  return d
+}
+
+function addDaysLocal(d: Date, days: number): Date {
+  const x = new Date(d)
+  x.setDate(x.getDate() + days)
+  return x
+}
+
+function easterSunday(year: number): Date {
+  const a = year % 19
+  const b = Math.floor(year / 100)
+  const c = year % 100
+  const d = Math.floor(b / 4)
+  const e = b % 4
+  const f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4)
+  const k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31)
+  const day = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function mergeSeededReminders(existing: Reminder[], additions: Reminder[]): Reminder[] {
+  const keys = new Set(existing.map((r) => `${normalizeTitle(r.title)}|${dayKey(r.when)}`))
+  const merged = [...existing]
+  for (const r of additions) {
+    const k = `${normalizeTitle(r.title)}|${dayKey(r.when)}`
+    if (keys.has(k)) continue
+    merged.push(r)
+    keys.add(k)
+  }
+  return merged
+}
+
+function normalizeTitle(s: string): string {
+  return String(s ?? '').trim().toLowerCase()
+}
+
+function dayKey(d: Date): string {
+  const x = startOfDay(d)
+  const y = x.getFullYear()
+  const m = String(x.getMonth() + 1).padStart(2, '0')
+  const day = String(x.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function initialUI(): AppState['ui'] {
   return {
     section: 'dashboard',
@@ -60,7 +441,53 @@ function initialUI(): AppState['ui'] {
   }
 }
 
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate()
+}
+
+function advanceMonthlySameDay(from: Date): Date {
+  const y = from.getFullYear()
+  const m = from.getMonth()
+  const day = from.getDate()
+  const nextM = m + 1
+  const y2 = y + Math.floor(nextM / 12)
+  const m2 = ((nextM % 12) + 12) % 12
+  const maxDay = daysInMonth(y2, m2)
+  return new Date(y2, m2, Math.min(day, maxDay), 0, 0, 0, 0)
+}
+
+function applyGoalMonthlyAutoAdd(goals: Goal[], now: Date): Goal[] {
+  const today = startOfDay(now).getTime()
+  let changed = false
+
+  const out = goals.map((g) => {
+    const amt = g.autoMonthlyAmount
+    const nextRaw = g.autoMonthlyNextDate
+    if (!amt || !nextRaw) return g
+    if (!Number.isFinite(amt.value) || amt.value <= 0) return g
+    if (amt.currencyCode !== g.savedAmount.currencyCode) return g
+
+    let next = startOfDay(nextRaw)
+    if (next.getTime() > today) return g
+
+    let saved = g.savedAmount.value
+    while (next.getTime() <= today) {
+      saved += amt.value
+      next = advanceMonthlySameDay(next)
+    }
+    changed = true
+    return { ...g, savedAmount: { ...g.savedAmount, value: saved }, autoMonthlyNextDate: next }
+  })
+
+  return changed ? out : goals
+}
+
 function reducer(state: AppState, action: AppAction): AppState {
+  const now = new Date()
+  if (action.type !== 'data/replaceAll') {
+    const nextGoals = applyGoalMonthlyAutoAdd(state.goals, now)
+    if (nextGoals !== state.goals) state = { ...state, goals: nextGoals }
+  }
   switch (action.type) {
     case 'ui/setSection':
       return { ...state, ui: { ...state.ui, section: action.section } }
@@ -78,36 +505,70 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, ui: { ...state.ui, selectedGoalId: action.id } }
     case 'ui/selectDebt':
       return { ...state, ui: { ...state.ui, selectedDebtId: action.id } }
-    case 'data/replaceAll':
-      return {
-        ...{
-          ...action.data,
-          settings: withActivePersonCount(normalizePeopleSettings(action.data.settings), action.data.transactions.length),
-          invoices: assignMissingInvoicePersonIds(action.data.invoices, action.data.settings),
-        },
-        ui: state.ui,
+    case 'data/replaceAll': {
+      const next = {
+        ...action.data,
+        settings: withActivePersonCount(normalizePeopleSettings(action.data.settings), action.data.transactions.length),
+        invoices: assignMissingInvoicePersonIds(action.data.invoices, action.data.settings),
       }
+      const personId = next.settings.peopleEnabled ? next.settings.activePersonId : null
+      const remindersAfterCompliance = applyJurisdictionComplianceReminders({
+        reminders: next.reminders ?? [],
+        jurisdiction: next.settings.defaultJurisdiction,
+        now,
+        personId,
+      })
+      const reminders = applyJurisdictionHolidayReminders({
+        reminders: remindersAfterCompliance,
+        jurisdiction: next.settings.defaultJurisdiction,
+        now,
+        yearsAhead: 5,
+      })
+      return { ...next, reminders, goals: applyGoalMonthlyAutoAdd(next.goals, now), ui: state.ui }
+    }
     case 'settings/update': {
       const nextSettings = normalizePeopleSettings({ ...state.settings, ...action.patch } as any)
       const nextActive = action.patch.activePersonId
       const didSwitchActive = typeof nextActive === 'string' && nextActive.length > 0 && nextActive !== state.settings.activePersonId
       const enabledBefore = Boolean(state.settings.peopleEnabled)
       const enabledAfter = Boolean(nextSettings.peopleEnabled)
+      const didChangeJurisdiction =
+        (action.patch as any).defaultJurisdiction === 'UK' || (action.patch as any).defaultJurisdiction === 'NO'
+          ? (action.patch as any).defaultJurisdiction !== state.settings.defaultJurisdiction
+          : false
+      const nextReminders = (() => {
+        if (!didChangeJurisdiction) return state.reminders
+        const personId = nextSettings.peopleEnabled ? nextSettings.activePersonId : null
+        const afterCompliance = applyJurisdictionComplianceReminders({
+          reminders: state.reminders ?? [],
+          jurisdiction: nextSettings.defaultJurisdiction,
+          now,
+          personId,
+        })
+        return applyJurisdictionHolidayReminders({ reminders: afterCompliance, jurisdiction: nextSettings.defaultJurisdiction, now, yearsAhead: 5 })
+      })()
       if (enabledBefore && enabledAfter && didSwitchActive) {
         const nextCounts = {
           ...nextSettings.peopleTransactionCounts,
           [state.settings.activePersonId]: state.transactions.length,
         }
-        return { ...state, settings: { ...nextSettings, peopleTransactionCounts: nextCounts }, transactions: [], ui: { ...state.ui, selectedTransactionId: null } }
+        return {
+          ...state,
+          settings: { ...nextSettings, peopleTransactionCounts: nextCounts },
+          reminders: nextReminders,
+          transactions: [],
+          ui: { ...state.ui, selectedTransactionId: null },
+        }
       }
       if (!enabledBefore && enabledAfter) {
         return {
           ...state,
           settings: withActivePersonCount(nextSettings, state.transactions.length),
           invoices: assignMissingInvoicePersonIds(state.invoices, nextSettings),
+          reminders: nextReminders,
         }
       }
-      return { ...state, settings: withActivePersonCount(nextSettings, state.transactions.length) }
+      return { ...state, settings: withActivePersonCount(nextSettings, state.transactions.length), reminders: nextReminders }
     }
     case 'bills/add':
       return {
@@ -169,6 +630,40 @@ function reducer(state: AppState, action: AppAction): AppState {
           : { ...state.ui, selectedBillId: null, selectedTransactionId: tx.id }
 
       return { ...state, bills: nextBills, transactions: [...state.transactions, tx], ui: nextUI }
+    }
+    case 'bills/logPaymentFromTransaction': {
+      const billIdx = state.bills.findIndex((b) => b.id === action.billId)
+      if (billIdx < 0) return state
+      const txIdx = state.transactions.findIndex((t) => t.id === action.transactionId)
+      if (txIdx < 0) return state
+      const b = state.bills[billIdx]
+      const t = state.transactions[txIdx]
+      if (!t || t.kind !== 'expense') return state
+      if (t.relatedBillId || t.relatedIncomeId) return state
+
+      const paidOn = t.date
+      const target = startOfDay(b.nextDueDate)
+      const payDay = startOfDay(paidOn)
+      let effectivePaidOn = paidOn
+      if (b.recurrence !== 'once') {
+        const prevDue = startOfDay(advanceRecurrence(b.recurrence, b.nextDueDate, -1))
+        if (payDay.getTime() <= prevDue.getTime()) return state
+        if (payDay.getTime() > target.getTime()) effectivePaidOn = b.nextDueDate
+      }
+
+      const updated = billMarkPaid(b, effectivePaidOn)
+      const nextBills = [...state.bills]
+      nextBills[billIdx] = updated
+
+      const nextTx: Transaction = {
+        ...t,
+        relatedBillId: b.id,
+        tags: Array.from(new Set([...(t.tags ?? []), 'bill'])),
+      }
+      const nextTransactions = [...state.transactions]
+      nextTransactions[txIdx] = nextTx
+
+      return { ...state, bills: nextBills, transactions: nextTransactions, ui: { ...state.ui, selectedBillId: null } }
     }
     case 'bills/skip': {
       const idx = state.bills.findIndex((b) => b.id === action.id)
@@ -256,6 +751,31 @@ function reducer(state: AppState, action: AppAction): AppState {
 
       return { ...state, incomes: nextIncomes, transactions: [...state.transactions, tx], ui: nextUI }
     }
+    case 'incomes/logReceiptFromTransaction': {
+      const incIdx = state.incomes.findIndex((i) => i.id === action.incomeId)
+      if (incIdx < 0) return state
+      const txIdx = state.transactions.findIndex((t) => t.id === action.transactionId)
+      if (txIdx < 0) return state
+      const inc = state.incomes[incIdx]
+      const t = state.transactions[txIdx]
+      if (!t || t.kind !== 'income') return state
+      if (t.relatedBillId || t.relatedIncomeId) return state
+
+      const receivedOn = t.date
+      const updated = incomeLogReceipt(inc, receivedOn)
+      const nextIncomes = [...state.incomes]
+      nextIncomes[incIdx] = updated
+
+      const nextTx: Transaction = {
+        ...t,
+        relatedIncomeId: inc.id,
+        tags: Array.from(new Set([...(t.tags ?? []), 'income'])),
+      }
+      const nextTransactions = [...state.transactions]
+      nextTransactions[txIdx] = nextTx
+
+      return { ...state, incomes: nextIncomes, transactions: nextTransactions, ui: { ...state.ui, selectedIncomeId: null } }
+    }
     case 'incomes/skip': {
       const idx = state.incomes.findIndex((i) => i.id === action.id)
       if (idx < 0) return state
@@ -334,6 +854,27 @@ function reducer(state: AppState, action: AppAction): AppState {
         transactions: [],
         ui: { ...state.ui, selectedTransactionId: null },
       }
+    case 'reminders/add':
+      return { ...state, reminders: [...state.reminders, action.reminder] }
+    case 'reminders/update':
+      return { ...state, reminders: state.reminders.map((r) => (r.id === action.reminder.id ? action.reminder : r)) }
+    case 'reminders/delete':
+      return { ...state, reminders: state.reminders.filter((r) => r.id !== action.id) }
+    case 'reminders/toggleComplete': {
+      const now = new Date()
+      return {
+        ...state,
+        reminders: state.reminders.map((r) => {
+          if (r.id !== action.id) return r
+          if (!action.completed) return { ...r, completedAt: null }
+          if (r.recurrence && r.recurrence !== 'once') {
+            const nextWhen = advanceRecurrence(r.recurrence, r.when)
+            return { ...r, when: nextWhen, completedAt: null }
+          }
+          return { ...r, completedAt: now }
+        }),
+      }
+    }
     case 'invoices/add':
       return (() => {
         const order = action.invoice.order ?? Date.now()
@@ -391,6 +932,7 @@ function emptyDatasets(): LoadedDatasets {
     incomes: [],
     accounts: [],
     transactions: [],
+    reminders: [],
     invoices: [],
     goals: [],
     debts: [],
@@ -423,6 +965,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      reminders: state.reminders,
       invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
@@ -450,7 +993,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       const loaded = storageMode === 'tauriFiles' ? await loadAllFromTauriFiles(fallback) : loadAllFromLocalStorage(fallback)
       const billsAfterAuto = processAutoPayments(loaded.bills, new Date())
-      const datasets = billsAfterAuto === loaded.bills ? loaded : { ...loaded, bills: billsAfterAuto }
+      let datasets: LoadedDatasets = billsAfterAuto === loaded.bills ? loaded : { ...loaded, bills: billsAfterAuto }
+      const personId = datasets.settings.peopleEnabled ? datasets.settings.activePersonId : null
+      const now = new Date()
+      const remindersAfterCompliance = applyJurisdictionComplianceReminders({
+        reminders: datasets.reminders ?? [],
+        jurisdiction: datasets.settings.defaultJurisdiction,
+        now,
+        personId,
+      })
+      const reminders = applyJurisdictionHolidayReminders({
+        reminders: remindersAfterCompliance,
+        jurisdiction: datasets.settings.defaultJurisdiction,
+        now,
+        yearsAhead: 5,
+      })
+      datasets = { ...datasets, reminders }
       dispatch({ type: 'data/replaceAll', data: datasets })
       lastPersisted.current = JSON.stringify(datasets)
       prevActivePersonId.current = datasets.settings.activePersonId
@@ -544,8 +1102,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return
-    void scheduleAllNotifications(state.bills, state.settings, new Date())
-  }, [ready, state.bills, state.settings])
+    void scheduleAllNotifications(state.bills, state.reminders, state.settings, new Date())
+  }, [ready, state.bills, state.reminders, state.settings])
 
   useEffect(() => {
     if (!ready) return

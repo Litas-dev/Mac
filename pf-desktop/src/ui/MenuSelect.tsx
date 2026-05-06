@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 type Option<T extends string> = { value: T; label: string }
 
@@ -85,34 +86,39 @@ export function MenuSelect<T extends string>(props: {
         {selectedLabel}
         <span className="menuChevron">▾</span>
       </button>
-      {open && pos ? (
-        <div
-          className="menuPanel"
-          style={{
-            left: pos.left,
-            top: pos.top,
-            width: pos.width,
-            maxHeight: pos.maxHeight,
-            transform: pos.direction === 'up' ? 'translateY(-100%)' : undefined,
-          }}
-          ref={panelRef}
-        >
-          {props.options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className={o.value === props.value ? 'menuOption active' : 'menuOption'}
-              onClick={() => {
-                props.onChange(o.value)
-                setOpen(false)
-              }}
-            >
-              <span className="menuOptionText">{o.label}</span>
-              {o.value === props.value ? <span className="menuCheck">✓</span> : <span className="menuCheck" />}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {open && pos && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="menuOverlay">
+              <div
+                className="menuPanel"
+                style={{
+                  left: pos.left,
+                  top: pos.top,
+                  width: pos.width,
+                  maxHeight: pos.maxHeight,
+                  transform: pos.direction === 'up' ? 'translateY(-100%)' : undefined,
+                }}
+                ref={panelRef}
+              >
+                {props.options.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    className={o.value === props.value ? 'menuOption active' : 'menuOption'}
+                    onClick={() => {
+                      props.onChange(o.value)
+                      setOpen(false)
+                    }}
+                  >
+                    <span className="menuOptionText">{o.label}</span>
+                    {o.value === props.value ? <span className="menuCheck">✓</span> : <span className="menuCheck" />}
+                  </button>
+                ))}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   )
 }

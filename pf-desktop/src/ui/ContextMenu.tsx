@@ -13,6 +13,26 @@ export function useContextMenu(items: ContextMenuItem[]) {
 
   useEffect(() => {
     if (!isOpen) return
+    const raf = window.requestAnimationFrame(() => {
+      const el = menuRef.current
+      if (!el || !pos) return
+      const r = el.getBoundingClientRect()
+      const margin = 10
+      let x = pos.x
+      let y = pos.y
+
+      if (r.right > window.innerWidth - margin) x -= r.right - (window.innerWidth - margin)
+      if (r.left < margin) x += margin - r.left
+      if (r.bottom > window.innerHeight - margin) y -= r.bottom - (window.innerHeight - margin)
+      if (r.top < margin) y += margin - r.top
+
+      if (x !== pos.x || y !== pos.y) setPos({ x, y })
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [isOpen, pos])
+
+  useEffect(() => {
+    if (!isOpen) return
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setPos(null)
     }
@@ -33,7 +53,17 @@ export function useContextMenu(items: ContextMenuItem[]) {
   function open(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    setPos({ x: e.clientX, y: e.clientY })
+    if (e.type === 'contextmenu') {
+      setPos({ x: e.clientX, y: e.clientY })
+      return
+    }
+    const target = e.currentTarget as HTMLElement | null
+    if (!target || typeof target.getBoundingClientRect !== 'function') {
+      setPos({ x: e.clientX, y: e.clientY })
+      return
+    }
+    const r = target.getBoundingClientRect()
+    setPos({ x: r.left, y: r.bottom + 6 })
   }
 
   function close() {
@@ -74,4 +104,3 @@ export function useContextMenu(items: ContextMenuItem[]) {
 
   return { open, close, Menu }
 }
-

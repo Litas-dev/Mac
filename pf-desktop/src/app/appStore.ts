@@ -1,9 +1,10 @@
 import { createContext, useContext } from 'react'
 import type { LoadedDatasets } from '../storage/localJsonStore'
-import type { Account, Bill, Debt, Goal, Income, Invoice, Transaction, UUID } from '../domain/models'
+import type { Account, Bill, Debt, Goal, Income, Invoice, Reminder, Transaction, UUID } from '../domain/models'
 
 export type Section =
   | 'dashboard'
+  | 'budget'
   | 'calendar'
   | 'bills'
   | 'income'
@@ -48,6 +49,7 @@ export type AppAction =
   | { type: 'bills/update'; bill: Bill }
   | { type: 'bills/delete'; id: UUID }
   | { type: 'bills/logPayment'; id: UUID; date?: Date }
+  | { type: 'bills/logPaymentFromTransaction'; billId: UUID; transactionId: UUID }
   | { type: 'bills/skip'; id: UUID }
   | { type: 'bills/setSnooze'; id: UUID; until: Date }
   | { type: 'bills/clearSnooze'; id: UUID }
@@ -56,6 +58,7 @@ export type AppAction =
   | { type: 'incomes/update'; income: Income }
   | { type: 'incomes/delete'; id: UUID }
   | { type: 'incomes/logReceipt'; id: UUID; date?: Date }
+  | { type: 'incomes/logReceiptFromTransaction'; incomeId: UUID; transactionId: UUID }
   | { type: 'incomes/skip'; id: UUID }
   | { type: 'accounts/add'; account: Account }
   | { type: 'accounts/update'; account: Account }
@@ -66,6 +69,10 @@ export type AppAction =
   | { type: 'transactions/replaceLoaded'; transactions: Transaction[] }
   | { type: 'transactions/delete'; id: UUID }
   | { type: 'transactions/clearAll' }
+  | { type: 'reminders/add'; reminder: Reminder }
+  | { type: 'reminders/update'; reminder: Reminder }
+  | { type: 'reminders/delete'; id: UUID }
+  | { type: 'reminders/toggleComplete'; id: UUID; completed: boolean }
   | { type: 'invoices/add'; invoice: Invoice }
   | { type: 'invoices/update'; invoice: Invoice }
   | { type: 'invoices/delete'; id: UUID }

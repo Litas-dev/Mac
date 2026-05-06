@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../app/appStore'
-import type { AIProvider, AppSettings, ImportCategoryRule } from '../../domain/settings'
+import { AI_FEATURE_ENABLED, type AIProvider, type AppSettings, type ImportCategoryRule } from '../../domain/settings'
 import type { BillCategory } from '../../domain/models'
 import { exportBackup, importBackupFromFolder, importBackupFromJson } from '../dataActions'
 import { buildBillsIcs } from '../../domain/calendarIcs'
@@ -10,6 +10,7 @@ import { useAuth } from '../../auth/AuthProvider'
 import { preservePrefsAcrossLocalStorageClear, savePreferredDisplayCurrencyCode } from '../../storage/userPrefs'
 import { isAdvancedAccount } from '../../licensing/licenseGates'
 import { MenuSelect } from '../MenuSelect'
+import { languageLabel, t } from '../i18n'
 
 export function SettingsView() {
   const { state, dispatch } = useAppStore()
@@ -33,6 +34,7 @@ export function SettingsView() {
   const [entitlementsStatus, setEntitlementsStatus] = useState<string>('')
 
   const settings = state.settings
+  const lang = settings.language
   const builtinCategories: BillCategory[] = ['housing', 'utilities', 'subscriptions', 'insurance', 'taxes', 'transport', 'other']
   const ruleFields: Array<ImportCategoryRule['field']> = ['any', 'payee', 'notes']
   const ruleKinds: Array<ImportCategoryRule['appliesTo']> = ['any', 'expense', 'income', 'transfer']
@@ -177,6 +179,7 @@ export function SettingsView() {
         incomes,
         accounts: state.accounts,
         transactions,
+        reminders: state.reminders,
         invoices: state.invoices,
         goals: state.goals,
         debts: state.debts,
@@ -226,6 +229,7 @@ export function SettingsView() {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      reminders: state.reminders,
       invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
@@ -242,6 +246,7 @@ export function SettingsView() {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      reminders: state.reminders,
       invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
@@ -258,6 +263,7 @@ export function SettingsView() {
       incomes: state.incomes,
       accounts: state.accounts,
       transactions: state.transactions,
+      reminders: state.reminders,
       invoices: state.invoices,
       goals: state.goals,
       debts: state.debts,
@@ -421,6 +427,10 @@ export function SettingsView() {
     }
   }
 
+  useEffect(() => {
+    if (!AI_FEATURE_ENABLED && tab === 'ai') setTab('general')
+  }, [tab])
+
   return (
     <>
       <div className="settingsPage form">
@@ -441,9 +451,11 @@ export function SettingsView() {
             <button type="button" className={tab === 'forecast' ? 'active' : ''} onClick={() => setTab('forecast')}>
               Forecast
             </button>
-            <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>
-              AI
-            </button>
+            {AI_FEATURE_ENABLED ? (
+              <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>
+                AI
+              </button>
+            ) : null}
             <button type="button" className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
               Account
             </button>
@@ -474,6 +486,42 @@ export function SettingsView() {
               <option value="SEK">SEK</option>
               <option value="DKK">DKK</option>
               <option value="PLN">PLN</option>
+            </select>
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">{t(lang, 'settings.language.label', 'Language')}</div>
+              <div className="settingsRowHint">{t(lang, 'settings.language.hint', 'App language (more coming soon).')}</div>
+            </div>
+            <select value={settings.language} onChange={(e) => updateSettings({ language: e.target.value as any })}>
+              <option value="en">{languageLabel('en')}</option>
+              <option value="no" disabled>
+                {languageLabel('no')}
+              </option>
+              <option value="de" disabled>
+                {languageLabel('de')}
+              </option>
+              <option value="pl" disabled>
+                {languageLabel('pl')}
+              </option>
+              <option value="es" disabled>
+                {languageLabel('es')}
+              </option>
+              <option value="fr" disabled>
+                {languageLabel('fr')}
+              </option>
+            </select>
+          </div>
+
+          <div className="settingsRow">
+            <div className="settingsRowText">
+              <div className="settingsRowLabel">Holiday calendar</div>
+              <div className="settingsRowHint">Controls which public holidays are shown in Calendar.</div>
+            </div>
+            <select value={settings.defaultJurisdiction} onChange={(e) => updateSettings({ defaultJurisdiction: e.target.value as any })}>
+              <option value="UK">UK</option>
+              <option value="NO">Norway</option>
             </select>
           </div>
 
@@ -874,7 +922,7 @@ export function SettingsView() {
         </div>
         ) : null}
 
-        {tab === 'ai' ? (
+        {AI_FEATURE_ENABLED && tab === 'ai' ? (
           <div className="settingsGroup">
           <div className="settingsGroupHeader">
             <div className="settingsGroupTitle">AI</div>

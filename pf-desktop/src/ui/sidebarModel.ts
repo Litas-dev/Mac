@@ -1,6 +1,8 @@
 import type { AppState, Section } from '../app/appStore'
 import { billIsPaidFor, billIsSnoozedActive } from '../domain/models'
 import { visibleInvoices, visibleTransactions } from '../domain/people'
+import type { LanguageCode } from '../domain/settings'
+import { t } from './i18n'
 
 export type SidebarGroup = { title: string; items: SidebarItem[] }
 
@@ -29,56 +31,82 @@ export type SidebarIcon =
   | 'reports'
   | 'settings'
 
-export function buildSidebar(state: AppState, advanced: boolean): SidebarGroup[] {
+export function buildSidebar(state: AppState, advanced: boolean, language: LanguageCode): SidebarGroup[] {
   const now = new Date()
 
   const billsItems: SidebarItem[] = [
-    { section: 'dashboard', title: 'Overview', subtitle: overviewSubtitle(state, now), icon: 'overview' },
-    { section: 'calendar', title: 'Calendar', subtitle: calendarSubtitle(state, now), icon: 'calendar' },
-    { section: 'income', title: 'Income', subtitle: incomeSubtitle(state), icon: 'income' },
+    { section: 'dashboard', title: t(language, 'nav.dashboard', 'Dashboard'), subtitle: overviewSubtitle(state, now), icon: 'overview' },
+    { section: 'budget', title: t(language, 'nav.budget', 'Budget'), icon: 'reports' },
+    { section: 'calendar', title: t(language, 'nav.calendar', 'Calendar'), subtitle: calendarSubtitle(state, now), icon: 'calendar' },
+    { section: 'income', title: t(language, 'nav.income', 'Income'), subtitle: incomeSubtitle(state), icon: 'income' },
   ]
   if (advanced) {
     billsItems.push({
       section: 'dueSoon',
-      title: 'Due Soon',
+      title: t(language, 'nav.dueSoon', 'Due Soon'),
       subtitle: dueSoonSubtitle(state, now),
       icon: 'dueSoon',
       dueSeverity: dueSoonSeverity(state, now),
     })
-    billsItems.push({ section: 'deferred', title: 'Deferred', subtitle: deferredSubtitle(state, now), icon: 'deferred' })
+    billsItems.push({
+      section: 'deferred',
+      title: t(language, 'nav.deferred', 'Deferred'),
+      subtitle: deferredSubtitle(state, now),
+      icon: 'deferred',
+    })
     billsItems.push({
       section: 'paidRecently',
-      title: 'Paid Recently',
+      title: t(language, 'nav.paidRecently', 'Paid Recently'),
       subtitle: paidRecentlySubtitle(state, now),
       icon: 'paidRecently',
     })
   } else {
-    billsItems.push({ section: 'deferred', title: 'Deferred', subtitle: deferredSubtitle(state, now), icon: 'deferred' })
+    billsItems.push({
+      section: 'deferred',
+      title: t(language, 'nav.deferred', 'Deferred'),
+      subtitle: deferredSubtitle(state, now),
+      icon: 'deferred',
+    })
   }
 
   if (advanced) {
-    billsItems.push({ section: 'goals', title: 'Goals', subtitle: goalsSubtitle(state), icon: 'goals' })
+    billsItems.push({ section: 'goals', title: t(language, 'nav.goals', 'Goals'), subtitle: goalsSubtitle(state), icon: 'goals' })
   }
 
-  const billsGroup: SidebarGroup = { title: 'Bills', items: billsItems }
+  const billsGroup: SidebarGroup = { title: t(language, 'sidebar.group.bills', 'Bills'), items: billsItems }
 
-  const coreGroup: SidebarGroup | null = advanced
-    ? {
-        title: 'Core',
-        items: [
-          { section: 'accounts', title: 'Accounts', subtitle: accountsSubtitle(state), icon: 'accounts' },
-          { section: 'transactions', title: 'Transactions', subtitle: transactionsSubtitle(state, now), icon: 'transactions' },
-          { section: 'invoices', title: 'Files', subtitle: filesSubtitle(state), icon: 'invoices' },
-          { section: 'debts', title: 'Debts', subtitle: debtsSubtitle(state), icon: 'debts' },
-        ],
-      }
-    : null
+  const accountantItems: SidebarItem[] = []
+  if (advanced) {
+    accountantItems.push({
+      section: 'accounts',
+      title: t(language, 'nav.accounts', 'Accounts'),
+      subtitle: accountsSubtitle(state),
+      icon: 'accounts',
+    })
+    accountantItems.push({
+      section: 'transactions',
+      title: t(language, 'nav.transactions', 'Transactions'),
+      subtitle: transactionsSubtitle(state, now),
+      icon: 'transactions',
+    })
+    accountantItems.push({
+      section: 'invoices',
+      title: t(language, 'nav.files', 'Files'),
+      subtitle: filesSubtitle(state),
+      icon: 'invoices',
+    })
+    accountantItems.push({ section: 'debts', title: t(language, 'nav.debts', 'Debts'), subtitle: debtsSubtitle(state), icon: 'debts' })
+  }
+  accountantItems.push({ section: 'reports', title: t(language, 'nav.reports', 'Reports'), icon: 'reports' })
+  const accountantGroup: SidebarGroup = { title: t(language, 'sidebar.group.accountant', 'Accountant'), items: accountantItems }
 
   return [
     billsGroup,
-    ...(coreGroup ? [coreGroup] : []),
-    { title: 'Reports', items: [{ section: 'reports', title: 'Reports', icon: 'reports' }] },
-    { title: 'Settings', items: [{ section: 'settings', title: 'Settings', icon: 'settings' }] },
+    accountantGroup,
+    {
+      title: t(language, 'sidebar.group.settings', 'Settings'),
+      items: [{ section: 'settings', title: t(language, 'nav.settings', 'Settings'), icon: 'settings' }],
+    },
   ]
 }
 
